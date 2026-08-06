@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Gerencie seu banco de horas extras de forma simples e organizada.">
+  <meta name="theme-color" content="#0f3d3e">
+  <title>Banco de Horas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <div class="bg-atmosphere" aria-hidden="true"></div>
+
+  <!-- Loading inicial (auth) -->
+  <div id="boot-screen" class="boot-screen">
+    <div class="boot-card">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <p>Carregando…</p>
+    </div>
+  </div>
+
+  <!-- Login / Cadastro -->
+  <section id="auth-screen" class="auth-screen" hidden>
+    <div class="auth-card">
+      <div class="brand auth-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <p class="brand-eyebrow">Controle pessoal</p>
+          <h1 class="brand-name">Banco de Horas</h1>
+        </div>
+      </div>
+
+      <h2 id="auth-title">Entrar</h2>
+      <p class="panel-sub" id="auth-sub">Acesse seu banco de horas na nuvem.</p>
+
+      <form id="auth-form" novalidate>
+        <div class="field">
+          <label for="auth-email">E-mail</label>
+          <input type="email" id="auth-email" autocomplete="email" required placeholder="voce@email.com">
+        </div>
+        <div class="field" id="auth-password-field">
+          <label for="auth-password">Senha</label>
+          <input type="password" id="auth-password" autocomplete="current-password" required minlength="6"
+            placeholder="Mínimo 6 caracteres">
+        </div>
+        <p class="form-success" id="auth-success" role="status" hidden></p>
+        <p class="form-error" id="auth-error" role="alert" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Entrar</button>
+      </form>
+
+      <button type="button" class="btn-link" id="auth-forgot">Esqueci a senha</button>
+      <button type="button" class="btn-link" id="auth-toggle">Não tem conta? Cadastre-se</button>
+    </div>
+  </section>
+
+  <!-- App autenticado -->
+  <div id="app-shell" hidden>
+    <header class="site-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <p class="brand-eyebrow">Controle pessoal</p>
+          <h1 class="brand-name">Banco de Horas</h1>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="account-menu">
+          <button type="button" class="account-trigger" id="btn-account" aria-expanded="false" aria-haspopup="true"
+            title="Conta">
+            <span class="account-avatar" id="account-avatar" aria-hidden="true">?</span>
+            <span class="account-meta">
+              <span class="account-name" id="account-name">Conta</span>
+              <span class="account-email" id="account-email"></span>
+            </span>
+            <span class="account-caret" aria-hidden="true"></span>
+          </button>
+          <div class="account-dropdown" id="account-dropdown" hidden>
+            <div class="account-dropdown-head">
+              <p class="account-dropdown-label">Conta</p>
+              <p class="account-dropdown-email" id="account-dropdown-email"></p>
+            </div>
+            <button type="button" class="account-option" data-account="display-name">
+              Nome de exibição
+            </button>
+            <button type="button" class="account-option" data-account="password">
+              Trocar senha
+            </button>
+            <div class="account-divider" role="separator"></div>
+            <button type="button" class="account-option danger" data-account="logout">
+              Sair
+            </button>
+          </div>
+        </div>
+
+        <div class="export-menu">
+          <button type="button" class="btn btn-ghost" id="btn-export" aria-expanded="false" aria-haspopup="true">
+            Exportar
+          </button>
+          <div class="export-dropdown" id="export-dropdown" hidden>
+            <button type="button" class="export-option" data-export="csv">Exportar CSV</button>
+            <button type="button" class="export-option" data-export="pdf">Exportar PDF</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="balance-panel" aria-labelledby="balance-heading">
+        <h2 id="balance-heading" class="visually-hidden">Saldo atual</h2>
+        <p class="balance-label">Saldo atual</p>
+        <p class="balance-value" id="balance-value">00:00</p>
+        <p class="balance-hint" id="balance-hint">Nenhum lançamento ainda</p>
+        <div class="balance-stats">
+          <div>
+            <span class="stat-label">Créditos</span>
+            <span class="stat-value credit" id="stat-credit">00:00</span>
+          </div>
+          <div>
+            <span class="stat-label">Débitos</span>
+            <span class="stat-value debit" id="stat-debit">00:00</span>
+          </div>
+          <div>
+            <span class="stat-label">Lançamentos</span>
+            <span class="stat-value" id="stat-count">0</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="form-panel" aria-labelledby="form-heading">
+        <div class="panel-head">
+          <h2 id="form-heading">Novo lançamento</h2>
+          <p class="panel-sub" id="form-sub">Registre horas extras ou compensações.</p>
+        </div>
+
+        <form id="entry-form" novalidate>
+          <input type="hidden" id="entry-id" value="">
+
+          <div class="field-row">
+            <div class="field">
+              <label for="entry-date">Data</label>
+              <input type="date" id="entry-date" required>
+            </div>
+            <div class="field">
+              <label for="entry-duration">Duração (hh:mm)</label>
+              <input type="text" id="entry-duration" inputmode="numeric" placeholder="Ex.: 130 → 1:30" maxlength="6"
+                required autocomplete="off" spellcheck="false" aria-describedby="duration-hint">
+              <p class="field-hint" id="duration-hint">Só números — o : é colocado automaticamente.</p>
+            </div>
+          </div>
+
+          <fieldset class="type-toggle">
+            <legend class="visually-hidden">Tipo de lançamento</legend>
+            <label class="type-option">
+              <input type="radio" name="entry-type" value="credit" checked>
+              <span>Hora extra</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="entry-type" value="debit">
+              <span>Compensação</span>
+            </label>
+          </fieldset>
+
+          <div class="field">
+            <label for="entry-note">Descrição <span class="optional">(opcional)</span></label>
+            <input type="text" id="entry-note" maxlength="120" placeholder="Ex.: reunião, plantão, folga">
+          </div>
+
+          <p class="form-error" id="form-error" role="alert" hidden></p>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btn-submit">Adicionar</button>
+            <button type="button" class="btn btn-ghost" id="btn-cancel" hidden>Cancelar edição</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="history-panel" aria-labelledby="history-heading">
+        <div class="panel-head history-head">
+          <div>
+            <h2 id="history-heading">Histórico</h2>
+            <p class="panel-sub">Todos os lançamentos, do mais recente ao mais antigo.</p>
+          </div>
+          <div class="field filter-field">
+            <label for="filter-month">Filtrar mês</label>
+            <select id="filter-month">
+              <option value="all">Todos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="history-table" id="history-table">
+            <thead>
+              <tr>
+                <th scope="col">Data</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Duração</th>
+                <th scope="col">Descrição</th>
+                <th scope="col"><span class="visually-hidden">Ações</span></th>
+              </tr>
+            </thead>
+            <tbody id="history-body">
+            </tbody>
+          </table>
+        </div>
+
+        <p class="empty-state" id="empty-state" hidden>
+          Nenhum lançamento neste período.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p id="footer-text">Dados sincronizados na nuvem (Firebase).</p>
+    </footer>
+  </div>
+
+  <!-- Modal: nome de exibição -->
+  <div class="modal" id="modal-display-name" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-display-name-title">
+      <h2 id="modal-display-name-title">Nome de exibição</h2>
+      <p class="panel-sub">Como você quer aparecer no app.</p>
+      <form id="form-display-name" novalidate>
+        <div class="field">
+          <label for="input-display-name">Nome</label>
+          <input type="text" id="input-display-name" maxlength="60" autocomplete="name" required placeholder="Seu nome">
+        </div>
+        <p class="form-error" id="error-display-name" role="alert" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Salvar</button>
+          <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: trocar senha -->
+  <div class="modal" id="modal-password" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-password-title">
+      <h2 id="modal-password-title">Trocar senha</h2>
+      <p class="panel-sub">Por segurança, confirme a senha atual.</p>
+      <form id="form-password" novalidate>
+        <div class="field">
+          <label for="input-current-password">Senha atual</label>
+          <input type="password" id="input-current-password" autocomplete="current-password" required minlength="6">
+        </div>
+        <div class="field">
+          <label for="input-new-password">Nova senha</label>
+          <input type="password" id="input-new-password" autocomplete="new-password" required minlength="6"
+            placeholder="Mínimo 6 caracteres">
+        </div>
+        <div class="field">
+          <label for="input-confirm-password">Confirmar nova senha</label>
+          <input type="password" id="input-confirm-password" autocomplete="new-password" required minlength="6">
+        </div>
+        <p class="form-error" id="error-password" role="alert" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Atualizar senha</button>
+          <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+
+</html>
