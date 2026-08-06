@@ -5,8 +5,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Gerencie seu banco de horas extras de forma simples e organizada.">
-  <meta name="theme-color" content="#0f3d3e">
+  <meta name="theme-color" content="#0e3f73" id="meta-theme-color">
+  <link rel="icon" href="assets/logo.png" type="image/png">
+  <link rel="apple-touch-icon" href="assets/logo.png">
   <title>Banco de Horas</title>
+  <script>
+    (function () {
+      try {
+        var key = "banco-horas:theme";
+        var saved = localStorage.getItem(key);
+        var theme = saved === "dark" || saved === "light" ? saved : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -21,7 +35,7 @@
   <!-- Loading inicial (auth) -->
   <div id="boot-screen" class="boot-screen">
     <div class="boot-card">
-      <span class="brand-mark" aria-hidden="true"></span>
+      <img class="brand-mark" src="assets/logo.png" alt="" width="44" height="44">
       <p>Carregando…</p>
     </div>
   </div>
@@ -30,7 +44,7 @@
   <section id="auth-screen" class="auth-screen" hidden>
     <div class="auth-card">
       <div class="brand auth-brand">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <img class="brand-mark" src="assets/logo.png" alt="" width="44" height="44">
         <div>
           <p class="brand-eyebrow">Controle pessoal</p>
           <h1 class="brand-name">Banco de Horas</h1>
@@ -64,7 +78,7 @@
   <div id="app-shell" hidden>
     <header class="site-header">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <img class="brand-mark" src="assets/logo.png" alt="" width="44" height="44">
         <div>
           <p class="brand-eyebrow">Controle pessoal</p>
           <h1 class="brand-name">Banco de Horas</h1>
@@ -86,12 +100,29 @@
               <p class="account-dropdown-label">Conta</p>
               <p class="account-dropdown-email" id="account-dropdown-email"></p>
             </div>
+
+            <div class="account-section">
+              <p class="account-section-label">Aparência</p>
+              <div class="theme-switch" role="group" aria-label="Tema da interface">
+                <button type="button" class="theme-option" data-theme-set="light" aria-pressed="true">
+                  Claro
+                </button>
+                <button type="button" class="theme-option" data-theme-set="dark" aria-pressed="false">
+                  Escuro
+                </button>
+              </div>
+            </div>
+
+            <div class="account-divider" role="separator"></div>
+
+            <p class="account-section-label account-section-label--pad">Preferências</p>
             <button type="button" class="account-option" data-account="display-name">
               Nome de exibição
             </button>
             <button type="button" class="account-option" data-account="password">
               Trocar senha
             </button>
+
             <div class="account-divider" role="separator"></div>
             <button type="button" class="account-option danger" data-account="logout">
               Sair

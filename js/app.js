@@ -15,6 +15,7 @@ import {
 import { TimeUtils } from "./time.js";
 import { Storage } from "./storage.js";
 import { exportCSV, exportPDF } from "./export.js";
+import { initTheme, applyTheme } from "./theme.js";
 
 const els = {
   boot: document.getElementById("boot-screen"),
@@ -608,6 +609,11 @@ function handleAccountAction(action) {
   }
 }
 
+function handleThemeChoice(theme) {
+  const next = applyTheme(theme);
+  showToast(next === "dark" ? "Tema escuro ativado." : "Tema claro ativado.");
+}
+
 function bindEvents() {
   els.authForm.addEventListener("submit", handleAuthSubmit);
   els.authForgot.addEventListener("click", () => setAuthMode("reset"));
@@ -674,6 +680,13 @@ function bindEvents() {
 
   els.accountDropdown.addEventListener("click", (event) => {
     event.stopPropagation();
+
+    const themeBtn = event.target.closest("[data-theme-set]");
+    if (themeBtn) {
+      handleThemeChoice(themeBtn.dataset.themeSet);
+      return;
+    }
+
     const option = event.target.closest("[data-account]");
     if (!option) return;
     handleAccountAction(option.dataset.account);
@@ -741,6 +754,7 @@ function onUserSignedOut() {
 
 function init() {
   try {
+    initTheme();
     bindEvents();
     setAuthMode("login");
     setView("boot");
