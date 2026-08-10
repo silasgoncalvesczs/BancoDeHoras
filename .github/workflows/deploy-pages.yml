@@ -24,6 +24,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare publish folder
+        run: |
+          mkdir -p publish
+          # Copia o site sem depender do .gitignore do artefato do Pages
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'publish' \
+            --exclude 'js/firebase-config.js' \
+            ./ publish/
+
       - name: Generate Firebase config from Secrets
         env:
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
@@ -53,7 +64,9 @@ jobs:
           def q(name: str) -> str:
               return json.dumps(os.environ[name])
 
-          Path("js/firebase-config.js").write_text(
+          out = Path("publish/js/firebase-config.js")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(
               "\n".join(
                   [
                       "/**",
@@ -73,7 +86,7 @@ jobs:
               ),
               encoding="utf-8",
           )
-          print("firebase-config.js generated")
+          print(f"generated {out} ({out.stat().st_size} bytes)")
           PY
 
       - name: Setup Pages
@@ -82,7 +95,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: publish
 
       - name: Deploy to GitHub Pages
         id: deployment

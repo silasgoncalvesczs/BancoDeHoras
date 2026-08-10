@@ -34,12 +34,23 @@ cp js/firebase-config.example.js js/firebase-config.js
 
 `js/firebase-config.js` não entra no Git (está no `.gitignore`).
 
+## PWA
+
+O app é instalável (manifest + service worker). No celular/desktop, use “Instalar app” / “Adicionar à tela inicial”.
+
+- UI e assets ficam em cache (abre offline)
+- Login e sync com Firebase **precisam de internet**
+
 ## Estrutura
 
 ```
 index.html
+manifest.webmanifest
+sw.js
 css/styles.css
-assets/logo.png
+assets/
+  logo.png
+  icons/
 js/
   app.js
   firebase.js
@@ -59,5 +70,6 @@ js/
    - `FIREBASE_STORAGE_BUCKET`
    - `FIREBASE_MESSAGING_SENDER_ID`
    - `FIREBASE_APP_ID`
-2. **Settings → Pages → Source**: GitHub Actions
+2. **Settings → Pages → Source**: **GitHub Actions** (não use “Deploy from a branch”)
 3. Push na `main` (workflow `Deploy GitHub Pages`)
+4. Confirme que `https://SEU_USER.github.io/BancoDeHoras/js/firebase-config.js` abre (não pode dar 404)
