@@ -1,6 +1,6 @@
 /**
  * Inicialização do Firebase (Auth + Firestore).
- * Configuração do projeto: bancodehoras-4635d
+ * A config vem de firebase-config.js (local ou gerado no deploy).
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
 import {
@@ -16,15 +16,7 @@ import {
   sendPasswordResetEmail,
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyArUmw3pclLKWQBwslE9wUTDi7G2qS6R0w",
-  authDomain: "bancodehoras-4635d.firebaseapp.com",
-  projectId: "bancodehoras-4635d",
-  storageBucket: "bancodehoras-4635d.firebasestorage.app",
-  messagingSenderId: "976335937272",
-  appId: "1:976335937272:web:50ef1c36edfad5c332650d",
-};
+import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
