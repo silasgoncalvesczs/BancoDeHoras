@@ -455,6 +455,8 @@ html[data-theme="dark"] .brand-mark {
   min-height: 100vh;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 1.1rem;
   padding: var(--space);
   animation: rise 0.45s ease both;
 }
@@ -970,6 +972,37 @@ html[data-theme="dark"] .brand-mark {
   color: var(--muted);
   font-size: 0.88rem;
   animation: rise 0.75s ease 0.2s both;
+}
+
+.dev-credit {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  text-align: center;
+}
+
+.site-footer .dev-credit {
+  text-align: left;
+}
+
+.auth-screen .dev-credit {
+  margin-top: 0;
+}
+
+.dev-credit a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.dev-credit a:hover,
+.dev-credit a:focus-visible {
+  color: var(--ink-soft);
+  border-bottom-color: color-mix(in srgb, var(--ink-soft) 55%, transparent);
+  outline: none;
 }
 
 .toast {
