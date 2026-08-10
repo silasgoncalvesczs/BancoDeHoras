@@ -39,9 +39,12 @@
 
   <!-- Loading inicial (auth) -->
   <div id="boot-screen" class="boot-screen">
-    <div class="boot-card">
+    <div class="boot-card" id="boot-card">
       <img class="brand-mark" src="assets/logo.png" alt="" width="44" height="44">
-      <p>Carregando…</p>
+      <div>
+        <p id="boot-text">Carregando…</p>
+        <p class="boot-hint" id="boot-hint" hidden></p>
+      </div>
     </div>
   </div>
 
@@ -317,7 +320,21 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module">
+    import("./js/app.js").catch((error) => {
+      console.error(error);
+      const boot = document.getElementById("boot-screen");
+      const text = document.getElementById("boot-text");
+      const hint = document.getElementById("boot-hint");
+      if (boot) boot.hidden = false;
+      if (text) text.textContent = "Não foi possível iniciar o app.";
+      if (hint) {
+        hint.hidden = false;
+        hint.textContent =
+          "Falha ao carregar a configuração do Firebase (firebase-config.js). No GitHub: Settings → Pages → Source = GitHub Actions, depois rode o workflow Deploy GitHub Pages.";
+      }
+    });
+  </script>
 </body>
 
 </html>

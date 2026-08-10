@@ -479,6 +479,22 @@ html[data-theme="dark"] .brand-mark {
   color: var(--ink-soft);
 }
 
+.boot-card > div {
+  min-width: 0;
+}
+
+.boot-card p {
+  margin: 0;
+}
+
+.boot-hint {
+  margin-top: 0.35rem !important;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 28rem;
+}
+
 .auth-brand {
   margin-bottom: 1.35rem;
 }
