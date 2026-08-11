@@ -27,11 +27,21 @@ service cloud.firestore {
         && request.resource.data.minutes > 0
         && request.resource.data.minutes < 100000
         && request.resource.data.note is string
-        && request.resource.data.note.size() <= 120;
+        && request.resource.data.note.size() <= 120
+        && (
+          !('imageData' in request.resource.data)
+          || (
+            request.resource.data.imageData is string
+            && request.resource.data.imageData.size() > 20
+            && request.resource.data.imageData.size() < 750000
+          )
+        );
     }
   }
 }
 ```
+
+> Imagens opcionais são salvas **comprimidas no Firestore** (campo `imageData`). Não é necessário ativar Firebase Storage.
 
 4. Configure o app local:
 
@@ -102,6 +112,7 @@ js/
   time.js
   export.js
   theme.js
+  images.js
 ```
 
 ## Deploy (mantenedor)

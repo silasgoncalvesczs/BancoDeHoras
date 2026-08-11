@@ -16,6 +16,7 @@ import { TimeUtils } from "./time.js";
 import { Storage } from "./storage.js";
 import { exportCSV, exportPDF } from "./export.js";
 import { initTheme, applyTheme } from "./theme.js";
+import { compressImageToDataUrl } from "./images.js";
 
 const els = {
   boot: document.getElementById("boot-screen"),
@@ -58,6 +59,13 @@ const els = {
   formSub: document.getElementById("form-sub"),
   btnSubmit: document.getElementById("btn-submit"),
   btnCancel: document.getElementById("btn-cancel"),
+  btnImageRemove: document.getElementById("btn-image-remove"),
+  inputImageGallery: document.getElementById("entry-image-gallery"),
+  inputImageCamera: document.getElementById("entry-image-camera"),
+  imagePreviewWrap: document.getElementById("image-preview-wrap"),
+  imagePreview: document.getElementById("image-preview"),
+  modalImage: document.getElementById("modal-image"),
+  lightboxImage: document.getElementById("lightbox-image"),
   balanceValue: document.getElementById("balance-value"),
   balanceHint: document.getElementById("balance-hint"),
   statCredit: document.getElementById("stat-credit"),
@@ -75,6 +83,13 @@ const els = {
 let toastTimer = null;
 let authMode = "login"; // login | signup | reset
 let busy = false;
+
+/** Data URL pendente para salvar no próximo submit. */
+let pendingImageData = null;
+/** Usuário pediu para remover a imagem existente. */
+let pendingImageClear = false;
+/** Data URL da imagem já salva (em edição). */
+let existingImageData = "";
 
 function showToast(message) {
   els.toast.textContent = message;
@@ -220,6 +235,68 @@ function setSelectedType(type) {
   if (input) input.checked = true;
 }
 
+function updateImageRemoveVisibility() {
+  const hasPreview = !els.imagePreviewWrap.hidden;
+  els.btnImageRemove.hidden = !hasPreview;
+}
+
+function clearImageInputs() {
+  if (els.inputImageGallery) els.inputImageGallery.value = "";
+  if (els.inputImageCamera) els.inputImageCamera.value = "";
+}
+
+function setImagePreviewFromUrl(url) {
+  if (!url) {
+    els.imagePreview.removeAttribute("src");
+    els.imagePreviewWrap.hidden = true;
+    updateImageRemoveVisibility();
+    return;
+  }
+  els.imagePreview.src = url;
+  els.imagePreviewWrap.hidden = false;
+  updateImageRemoveVisibility();
+}
+
+function resetImageState() {
+  pendingImageData = null;
+  pendingImageClear = false;
+  existingImageData = "";
+  clearImageInputs();
+  setImagePreviewFromUrl("");
+}
+
+async function handleImageFileSelected(file) {
+  if (!file) return;
+  try {
+    showFormError("");
+    const dataUrl = await compressImageToDataUrl(file);
+    pendingImageData = dataUrl;
+    pendingImageClear = false;
+    setImagePreviewFromUrl(dataUrl);
+  } catch (error) {
+    showFormError(error.message || "Não foi possível usar esta imagem.");
+    clearImageInputs();
+  }
+}
+
+function handleImageRemove() {
+  pendingImageData = null;
+  clearImageInputs();
+  if (existingImageData) {
+    pendingImageClear = true;
+  }
+  setImagePreviewFromUrl("");
+}
+
+function openImageLightbox(dataUrl) {
+  if (!dataUrl) {
+    showToast("Não foi possível abrir a imagem.");
+    return;
+  }
+  els.lightboxImage.src = dataUrl;
+  openModal(els.modalImage);
+}
+
 function resetForm() {
   els.entryId.value = "";
   els.date.value = TimeUtils.todayISO();
@@ -231,6 +308,7 @@ function resetForm() {
   els.formSub.textContent = "Registre horas extras ou compensações.";
   els.btnSubmit.textContent = "Adicionar";
   els.btnCancel.hidden = true;
+  resetImageState();
 }
 
 function enterEditMode(entry) {
@@ -244,6 +322,13 @@ function enterEditMode(entry) {
   els.formSub.textContent = "Altere os campos e salve as mudanças.";
   els.btnSubmit.textContent = "Salvar alterações";
   els.btnCancel.hidden = false;
+
+  pendingImageData = null;
+  pendingImageClear = false;
+  existingImageData = entry.imageData || "";
+  clearImageInputs();
+  setImagePreviewFromUrl(existingImageData || "");
+
   els.date.focus();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -322,12 +407,22 @@ function renderHistory(entries) {
     const typeLabel = entry.type === "credit" ? "Hora extra" : "Compensação";
     const typeClass = entry.type === "credit" ? "badge-credit" : "badge-debit";
     const signedMinutes = entry.type === "credit" ? entry.minutes : -entry.minutes;
+    const hasImage = Boolean(entry.imageData);
 
     tr.innerHTML = `
       <td data-label="Data">${TimeUtils.formatDateBR(entry.date)}</td>
       <td data-label="Tipo"><span class="badge ${typeClass}">${typeLabel}</span></td>
       <td data-label="Duração" class="mono">${TimeUtils.formatDuration(signedMinutes, { signed: true })}</td>
       <td data-label="Descrição">${escapeHtml(entry.note || "—")}</td>
+      <td data-label="Foto" class="photo-cell">
+        ${
+          hasImage
+            ? `<button type="button" class="history-thumb-btn" data-action="view-image" aria-label="Ver imagem anexada">
+                <img class="history-thumb" alt="" loading="lazy">
+              </button>`
+            : `<span class="photo-empty">—</span>`
+        }
+      </td>
       <td class="actions-cell">
         <button type="button" class="btn-icon" data-action="edit" aria-label="Editar lançamento">Editar</button>
         <button type="button" class="btn-icon danger" data-action="delete" aria-label="Excluir lançamento">Excluir</button>
@@ -335,6 +430,11 @@ function renderHistory(entries) {
     `;
 
     els.historyBody.appendChild(tr);
+
+    if (hasImage) {
+      const thumb = tr.querySelector(".history-thumb");
+      if (thumb) thumb.src = entry.imageData;
+    }
   });
 }
 
@@ -367,27 +467,46 @@ async function handleSubmit(event) {
     return;
   }
 
+  const id = els.entryId.value || Storage.createId();
+  const isEdit = Boolean(els.entryId.value);
+
   const payload = {
-    id: els.entryId.value || Storage.createId(),
+    id,
     date,
     type: selectedType(),
     minutes,
     note: els.note.value.trim(),
   };
 
-  const isEdit = Boolean(els.entryId.value);
+  if (pendingImageData) {
+    payload.imageData = pendingImageData;
+  } else if (pendingImageClear) {
+    payload.imageData = "";
+  }
 
   try {
     busy = true;
     els.btnSubmit.disabled = true;
+    els.btnSubmit.textContent = isEdit ? "Salvando…" : "Adicionando…";
+
     await Storage.upsertEntry(payload);
+
     resetForm();
     showToast(isEdit ? "Lançamento atualizado." : "Lançamento adicionado.");
   } catch (error) {
-    showFormError(error.message || "Não foi possível salvar.");
+    console.error(error);
+    const code = error?.code || "";
+    if (code === "permission-denied") {
+      showFormError(
+        "Sem permissão no Firestore. Atualize as Rules no Firebase Console (veja o README — campo imageData)."
+      );
+    } else {
+      showFormError(error.message || "Não foi possível salvar.");
+    }
   } finally {
     busy = false;
     els.btnSubmit.disabled = false;
+    els.btnSubmit.textContent = els.entryId.value ? "Salvar alterações" : "Adicionar";
   }
 }
 
@@ -398,6 +517,12 @@ async function handleHistoryClick(event) {
   const row = button.closest("tr");
   const id = row?.dataset.id;
   if (!id) return;
+
+  if (button.dataset.action === "view-image") {
+    const entry = Storage.getEntry(id);
+    if (entry?.imageData) openImageLightbox(entry.imageData);
+    return;
+  }
 
   if (button.dataset.action === "edit") {
     const entry = Storage.getEntry(id);
@@ -495,6 +620,10 @@ function closeModal(modal) {
 function closeAllModals() {
   closeModal(els.modalDisplayName);
   closeModal(els.modalPassword);
+  if (els.modalImage) {
+    closeModal(els.modalImage);
+    els.lightboxImage.removeAttribute("src");
+  }
   els.errorDisplayName.hidden = true;
   els.errorPassword.hidden = true;
 }
@@ -629,6 +758,17 @@ function bindEvents() {
   els.btnCancel.addEventListener("click", () => {
     resetForm();
     showToast("Edição cancelada.");
+  });
+
+  // Labels (for=) abrem o file picker; hidden em input[type=file] quebra o click no desktop
+  els.btnImageRemove.addEventListener("click", handleImageRemove);
+  els.inputImageGallery.addEventListener("change", () => {
+    const file = els.inputImageGallery.files?.[0];
+    handleImageFileSelected(file);
+  });
+  els.inputImageCamera.addEventListener("change", () => {
+    const file = els.inputImageCamera.files?.[0];
+    handleImageFileSelected(file);
   });
 
   els.duration.addEventListener("keydown", (event) => {

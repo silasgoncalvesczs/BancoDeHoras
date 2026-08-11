@@ -1,6 +1,7 @@
 /**
  * Persistência no Cloud Firestore (por usuário autenticado).
  * Caminho: users/{uid}/entries/{entryId}
+ * Imagem opcional: campo imageData (JPEG data URL comprimido).
  *
  * Mantém cache em memória + listener em tempo real.
  */
@@ -12,11 +13,13 @@ import {
   onSnapshot,
   writeBatch,
   getDocs,
+  deleteField,
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { db } from "./firebase.js";
 
 const LOCAL_KEY = "banco-horas:v1";
 const SCHEMA_VERSION = 1;
+const MAX_IMAGE_DATA_CHARS = 750000;
 
 let currentUid = null;
 let cache = [];
@@ -31,12 +34,18 @@ function normalizeEntry(entry) {
   const minutes = Number(entry.minutes);
   if (!Number.isFinite(minutes) || minutes <= 0) return null;
 
+  let imageData = "";
+  if (typeof entry.imageData === "string" && entry.imageData.startsWith("data:image/")) {
+    imageData = entry.imageData.slice(0, MAX_IMAGE_DATA_CHARS);
+  }
+
   return {
     id: String(entry.id),
     date: String(entry.date),
     type: entry.type,
     minutes: Math.trunc(minutes),
     note: String(entry.note || "").slice(0, 120),
+    imageData,
     createdAt: entry.createdAt || new Date().toISOString(),
     updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),
   };
@@ -66,6 +75,10 @@ function entryRef(id) {
 
 function requireUser() {
   if (!currentUid) throw new Error("Faça login para continuar.");
+}
+
+export function getCurrentUid() {
+  return currentUid;
 }
 
 export function createId() {
@@ -127,17 +140,37 @@ export async function upsertEntry(partial) {
   const existing = partial.id ? getEntry(partial.id) : null;
   const id = partial.id || createId();
 
+  let imageData = existing?.imageData || "";
+  if (Object.prototype.hasOwnProperty.call(partial, "imageData")) {
+    imageData =
+      typeof partial.imageData === "string" && partial.imageData.startsWith("data:image/")
+        ? partial.imageData
+        : "";
+  }
+
   const entry = normalizeEntry({
     ...(existing || {}),
     ...partial,
     id,
+    imageData,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   });
 
   if (!entry) throw new Error("Lançamento inválido.");
 
-  const { id: _id, ...data } = entry;
+  const { id: _id, imageData: img, ...rest } = entry;
+  const data = { ...rest };
+
+  if (img) {
+    data.imageData = img;
+  } else {
+    data.imageData = deleteField();
+  }
+
+  // Remove campo legado de Storage, se existir
+  data.imagePath = deleteField();
+
   await setDoc(entryRef(id), data, { merge: true });
   return entry;
 }
@@ -225,7 +258,9 @@ export async function importJSON(rawText, { replace = true } = {}) {
 
   for (const entry of normalized) {
     const { id, ...data } = entry;
-    batch.set(entryRef(id), data, { merge: !replace });
+    const payload = { ...data };
+    if (!payload.imageData) delete payload.imageData;
+    batch.set(entryRef(id), payload, { merge: !replace });
     ops += 1;
     if (ops >= 400) {
       await batch.commit();
@@ -274,6 +309,7 @@ export async function migrateLocalIfCloudEmpty() {
 
 export const Storage = {
   createId,
+  getCurrentUid,
   onEntriesChange,
   setUser,
   clearUser,

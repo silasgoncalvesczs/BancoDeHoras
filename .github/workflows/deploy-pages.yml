@@ -92,6 +92,7 @@ jobs:
       - name: Verify publish contents
         run: |
           test -f publish/js/firebase-config.js
+          test -f publish/js/images.js
           test -f publish/index.html
           test -f publish/sw.js
           echo "publish/js:"
