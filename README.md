@@ -10,7 +10,7 @@ Hospede no GitHub Pages. A configuração do Firebase no site público é injeta
 
 1. Crie um projeto em [Firebase Console](https://console.firebase.google.com/)
 2. Ative **Authentication** (e-mail/senha) e **Firestore**
-3. Publique regras que só o dono acessa os próprios dados:
+3. Publique as regras do arquivo `firestore.rules` (Firebase Console → Firestore → Rules):
 
 ```
 rules_version = '2';
@@ -22,6 +22,8 @@ service cloud.firestore {
       allow create, update: if request.auth != null
         && request.auth.uid == userId
         && request.resource.data.keys().hasAll(['date', 'type', 'minutes', 'note', 'createdAt', 'updatedAt'])
+        && request.resource.data.date is string
+        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.type in ['credit', 'debit']
         && request.resource.data.minutes is int
         && request.resource.data.minutes > 0
@@ -32,7 +34,7 @@ service cloud.firestore {
           !('imageData' in request.resource.data)
           || (
             request.resource.data.imageData is string
-            && request.resource.data.imageData.size() > 20
+            && request.resource.data.imageData.size() > 22
             && request.resource.data.imageData.size() < 750000
           )
         );
@@ -41,7 +43,7 @@ service cloud.firestore {
 }
 ```
 
-> Imagens opcionais são salvas **comprimidas no Firestore** (campo `imageData`). Não é necessário ativar Firebase Storage.
+> Imagens opcionais são salvas **comprimidas no Firestore** (JPEG/PNG/WebP em `imageData`). MIME é validado no app; tamanho limitado nas rules.
 
 4. Configure o app local:
 
@@ -66,7 +68,8 @@ A `apiKey` web do Firebase **aparece no site** — isso é normal em apps client
 
 ### No Firebase Console (obrigatório)
 
-- [ ] **Firestore → Rules** publicadas (snippet acima). Nunca `allow read, write: if true`
+- [ ] **Firestore → Rules** publicadas a partir de `firestore.rules`. Nunca `allow read, write: if true`
+- [ ] **API key** com HTTP referrer: `https://SEU_USER.github.io/*` e `http://localhost:*/*` (dev)
 - [ ] **Authentication → Settings → Authorized domains**: `localhost` e `SEU_USER.github.io`
 - [ ] Teste no Rules Playground: usuário A lendo `users/{uidB}/entries/...` → **deny**
 
@@ -100,6 +103,7 @@ O app é instalável (manifest + service worker). No celular/desktop, use “Ins
 index.html
 manifest.webmanifest
 sw.js
+firestore.rules
 css/styles.css
 assets/
   logo.png

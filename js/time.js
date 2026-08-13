@@ -3,6 +3,26 @@
  * Formato canônico: minutos (inteiro). Exibição: hh:mm.
  */
 const DURATION_RE = /^(\d{1,3}):([0-5]\d)$/;
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Valida YYYY-MM-DD (calendário real). */
+export function isValidISODate(value) {
+  if (typeof value !== "string") return false;
+  const match = ISO_DATE_RE.exec(value.trim());
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
 
 /** Converte "hh:mm" em minutos. Retorna null se inválido. */
 export function parseDuration(value) {
@@ -86,8 +106,8 @@ export function normalizeDurationInput(raw) {
 
 /** Formata ISO date (YYYY-MM-DD) para pt-BR. */
 export function formatDateBR(isoDate) {
+  if (!isValidISODate(isoDate)) return "—";
   const [year, month, day] = isoDate.split("-").map(Number);
-  if (!year || !month || !day) return isoDate;
   const date = new Date(year, month - 1, day);
   return date.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -107,12 +127,17 @@ export function todayISO() {
 
 /** Extrai YYYY-MM de uma data ISO. */
 export function monthKey(isoDate) {
+  if (!isValidISODate(isoDate)) return "";
   return isoDate.slice(0, 7);
 }
 
 /** Rótulo amigável para YYYY-MM. */
 export function formatMonthLabel(ym) {
-  const [year, month] = ym.split("-").map(Number);
+  const match = /^(\d{4})-(\d{2})$/.exec(String(ym || ""));
+  if (!match) return "—";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return "—";
   const date = new Date(year, month - 1, 1);
   const label = date.toLocaleDateString("pt-BR", {
     month: "long",
@@ -122,6 +147,7 @@ export function formatMonthLabel(ym) {
 }
 
 export const TimeUtils = {
+  isValidISODate,
   parseDuration,
   formatDuration,
   maskDurationInput,

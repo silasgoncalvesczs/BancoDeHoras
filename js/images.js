@@ -6,6 +6,8 @@ const MAX_SIDE = 960;
 const JPEG_QUALITY = 0.68;
 /** Limite seguro abaixo de 1 MB do documento Firestore. */
 const MAX_DATA_URL_CHARS = 750000;
+const ALLOWED_INPUT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/jpg"]);
+const ALLOWED_DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=\s]+$/;
 
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
@@ -17,7 +19,7 @@ function loadImageFromFile(file) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Não foi possível ler a imagem. Tente outro arquivo (JPG/PNG)."));
+      reject(new Error("Não foi possível ler a imagem. Use JPG, PNG ou WebP."));
     };
     img.src = url;
   });
@@ -27,12 +29,23 @@ function canvasToDataUrl(canvas, quality) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+/** Aceita apenas data URLs de imagem raster seguras. */
+export function isSafeImageDataUrl(value) {
+  if (typeof value !== "string") return false;
+  if (value.length < 20 || value.length > MAX_DATA_URL_CHARS) return false;
+  if (!ALLOWED_DATA_URL_RE.test(value.replace(/\s+/g, ""))) return false;
+  return value.startsWith("data:image/jpeg;base64,")
+    || value.startsWith("data:image/png;base64,")
+    || value.startsWith("data:image/webp;base64,");
+}
+
 /**
  * Redimensiona e comprime para data URL JPEG (pronta para salvar no Firestore).
  */
 export async function compressImageToDataUrl(file) {
-  if (!file || !String(file.type || "").startsWith("image/")) {
-    throw new Error("Selecione um arquivo de imagem.");
+  const type = String(file?.type || "").toLowerCase();
+  if (!file || !ALLOWED_INPUT_TYPES.has(type)) {
+    throw new Error("Selecione uma imagem JPG, PNG ou WebP.");
   }
 
   const img = await loadImageFromFile(file);
@@ -58,21 +71,9 @@ export async function compressImageToDataUrl(file) {
     dataUrl = canvasToDataUrl(canvas, quality);
   }
 
-  if (dataUrl.length > MAX_DATA_URL_CHARS) {
+  if (dataUrl.length > MAX_DATA_URL_CHARS || !isSafeImageDataUrl(dataUrl)) {
     throw new Error("A imagem ficou grande demais. Tente uma foto com menor resolução.");
   }
 
   return dataUrl;
-}
-
-/** Converte data URL em Blob (preview local). */
-export function dataUrlToBlob(dataUrl) {
-  const [header, base64] = String(dataUrl).split(",");
-  const mime = /data:([^;]+);base64/.exec(header)?.[1] || "image/jpeg";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mime });
 }

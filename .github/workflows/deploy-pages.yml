@@ -32,6 +32,7 @@ jobs:
             --exclude '.git' \
             --exclude '.github' \
             --exclude 'publish' \
+            --exclude 'firestore.rules' \
             --exclude 'js/firebase-config.js' \
             ./ publish/
 

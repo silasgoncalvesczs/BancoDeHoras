@@ -16,7 +16,7 @@ import { TimeUtils } from "./time.js";
 import { Storage } from "./storage.js";
 import { exportCSV, exportPDF } from "./export.js";
 import { initTheme, applyTheme } from "./theme.js";
-import { compressImageToDataUrl } from "./images.js";
+import { compressImageToDataUrl, isSafeImageDataUrl } from "./images.js";
 
 const els = {
   boot: document.getElementById("boot-screen"),
@@ -289,7 +289,7 @@ function handleImageRemove() {
 }
 
 function openImageLightbox(dataUrl) {
-  if (!dataUrl) {
+  if (!isSafeImageDataUrl(dataUrl)) {
     showToast("Não foi possível abrir a imagem.");
     return;
   }
@@ -407,12 +407,12 @@ function renderHistory(entries) {
     const typeLabel = entry.type === "credit" ? "Hora extra" : "Compensação";
     const typeClass = entry.type === "credit" ? "badge-credit" : "badge-debit";
     const signedMinutes = entry.type === "credit" ? entry.minutes : -entry.minutes;
-    const hasImage = Boolean(entry.imageData);
+    const hasImage = isSafeImageDataUrl(entry.imageData);
 
     tr.innerHTML = `
-      <td data-label="Data">${TimeUtils.formatDateBR(entry.date)}</td>
+      <td data-label="Data">${escapeHtml(TimeUtils.formatDateBR(entry.date))}</td>
       <td data-label="Tipo"><span class="badge ${typeClass}">${typeLabel}</span></td>
-      <td data-label="Duração" class="mono">${TimeUtils.formatDuration(signedMinutes, { signed: true })}</td>
+      <td data-label="Duração" class="mono">${escapeHtml(TimeUtils.formatDuration(signedMinutes, { signed: true }))}</td>
       <td data-label="Descrição">${escapeHtml(entry.note || "—")}</td>
       <td data-label="Foto" class="photo-cell">
         ${
@@ -431,7 +431,7 @@ function renderHistory(entries) {
 
     els.historyBody.appendChild(tr);
 
-    if (hasImage) {
+    if (hasImage && isSafeImageDataUrl(entry.imageData)) {
       const thumb = tr.querySelector(".history-thumb");
       if (thumb) thumb.src = entry.imageData;
     }
@@ -451,8 +451,8 @@ async function handleSubmit(event) {
   showFormError("");
 
   const date = els.date.value;
-  if (!date) {
-    showFormError("Informe a data do lançamento.");
+  if (!TimeUtils.isValidISODate(date)) {
+    showFormError("Informe uma data válida.");
     els.date.focus();
     return;
   }
@@ -467,15 +467,21 @@ async function handleSubmit(event) {
     return;
   }
 
+  const type = selectedType();
+  if (type !== "credit" && type !== "debit") {
+    showFormError("Tipo de lançamento inválido.");
+    return;
+  }
+
   const id = els.entryId.value || Storage.createId();
   const isEdit = Boolean(els.entryId.value);
 
   const payload = {
     id,
     date,
-    type: selectedType(),
+    type,
     minutes,
-    note: els.note.value.trim(),
+    note: els.note.value.trim().slice(0, 120),
   };
 
   if (pendingImageData) {

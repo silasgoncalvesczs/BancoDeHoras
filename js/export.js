@@ -82,9 +82,9 @@ export function exportPDF(entries = Storage.listEntries(), { userEmail = "" } = 
     .map(
       (row) => `
       <tr>
-        <td>${row.dateBR}</td>
-        <td>${row.type}</td>
-        <td class="mono">${row.duration}</td>
+        <td>${escapeHtml(row.dateBR)}</td>
+        <td>${escapeHtml(row.type)}</td>
+        <td class="mono">${escapeHtml(row.duration)}</td>
         <td>${escapeHtml(row.note || "—")}</td>
       </tr>`
     )

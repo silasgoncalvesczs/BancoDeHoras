@@ -2,7 +2,7 @@
  * Service Worker — cache do casco estático (UI offline).
  * Auth/Firestore continuam exigindo rede.
  */
-const CACHE_VERSION = "banco-horas-v3";
+const CACHE_VERSION = "banco-horas-v4";
 const PRECACHE = [
   "./",
   "./index.html",

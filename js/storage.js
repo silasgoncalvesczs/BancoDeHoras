@@ -16,10 +16,12 @@ import {
   deleteField,
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { db } from "./firebase.js";
+import { isValidISODate } from "./time.js";
+import { isSafeImageDataUrl } from "./images.js";
 
 const LOCAL_KEY = "banco-horas:v1";
 const SCHEMA_VERSION = 1;
-const MAX_IMAGE_DATA_CHARS = 750000;
+const MAX_MINUTES = 999 * 60 + 59;
 
 let currentUid = null;
 let cache = [];
@@ -30,18 +32,19 @@ function normalizeEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   if (!entry.id || !entry.date || !entry.type) return null;
   if (entry.type !== "credit" && entry.type !== "debit") return null;
+  if (!isValidISODate(String(entry.date))) return null;
 
   const minutes = Number(entry.minutes);
-  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_MINUTES) return null;
 
   let imageData = "";
-  if (typeof entry.imageData === "string" && entry.imageData.startsWith("data:image/")) {
-    imageData = entry.imageData.slice(0, MAX_IMAGE_DATA_CHARS);
+  if (typeof entry.imageData === "string" && isSafeImageDataUrl(entry.imageData)) {
+    imageData = entry.imageData;
   }
 
   return {
-    id: String(entry.id),
-    date: String(entry.date),
+    id: String(entry.id).slice(0, 80),
+    date: String(entry.date).trim(),
     type: entry.type,
     minutes: Math.trunc(minutes),
     note: String(entry.note || "").slice(0, 120),
@@ -143,7 +146,7 @@ export async function upsertEntry(partial) {
   let imageData = existing?.imageData || "";
   if (Object.prototype.hasOwnProperty.call(partial, "imageData")) {
     imageData =
-      typeof partial.imageData === "string" && partial.imageData.startsWith("data:image/")
+      typeof partial.imageData === "string" && isSafeImageDataUrl(partial.imageData)
         ? partial.imageData
         : "";
   }
