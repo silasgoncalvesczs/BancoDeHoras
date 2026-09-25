@@ -63,14 +63,19 @@
       <p class="panel-sub" id="auth-sub">Acesse seu banco de horas na nuvem.</p>
 
       <form id="auth-form" novalidate>
-        <div class="field">
+        <div class="field" id="auth-email-field">
           <label for="auth-email">E-mail</label>
           <input type="email" id="auth-email" autocomplete="email" required placeholder="voce@email.com">
         </div>
         <div class="field" id="auth-password-field">
-          <label for="auth-password">Senha</label>
+          <label for="auth-password" id="auth-password-label">Senha</label>
           <input type="password" id="auth-password" autocomplete="current-password" required minlength="6"
             placeholder="Mínimo 6 caracteres">
+        </div>
+        <div class="field" id="auth-password-confirm-field" hidden>
+          <label for="auth-password-confirm">Confirmar nova senha</label>
+          <input type="password" id="auth-password-confirm" autocomplete="new-password" minlength="6"
+            placeholder="Repita a nova senha">
         </div>
         <p class="form-success" id="auth-success" role="status" hidden></p>
         <p class="form-error" id="auth-error" role="alert" hidden></p>
@@ -125,6 +130,23 @@
               </div>
             </div>
 
+            <div class="account-section">
+              <p class="account-section-label">Meta de Horas</p>
+              <div class="theme-switch goals-switch" role="group" aria-label="Ativar meta de horas">
+                <button type="button" class="theme-option" data-goals-set="off" aria-pressed="true">
+                  Off
+                </button>
+                <button type="button" class="theme-option" data-goals-set="on" aria-pressed="false">
+                  On
+                </button>
+              </div>
+              <div class="goals-meta-field" id="goals-meta-field" hidden>
+                <label for="goals-duration">Meta (hh:mm)</label>
+                <input type="text" id="goals-duration" inputmode="numeric" placeholder="Ex.: 4400 → 44:00"
+                  maxlength="6" autocomplete="off" spellcheck="false">
+              </div>
+            </div>
+
             <div class="account-divider" role="separator"></div>
 
             <p class="account-section-label account-section-label--pad">Preferências</p>
@@ -174,6 +196,39 @@
             <span class="stat-value" id="stat-count">0</span>
           </div>
         </div>
+      </section>
+
+      <section class="goal-panel" id="goal-panel" aria-labelledby="goal-heading" hidden>
+        <div class="panel-head goal-head">
+          <h2 id="goal-heading" class="goal-title">Meta de Horas</h2>
+          <p class="panel-sub">Realizado vs. a fazer para bater a meta</p>
+        </div>
+        <div class="goal-body" id="goal-body">
+          <div class="goal-pie" id="goal-pie" aria-hidden="true"></div>
+          <ul class="goal-legend">
+            <li class="goal-legend-item goal-legend-item--done">
+              <span class="goal-swatch" aria-hidden="true"></span>
+              <span class="goal-legend-text">
+                <span class="goal-legend-label">Realizado</span>
+                <span class="goal-legend-values">
+                  <span class="mono" id="goal-done">00:00</span>
+                  <span class="goal-pct" id="goal-done-pct">0.00%</span>
+                </span>
+              </span>
+            </li>
+            <li class="goal-legend-item goal-legend-item--todo">
+              <span class="goal-swatch" aria-hidden="true"></span>
+              <span class="goal-legend-text">
+                <span class="goal-legend-label" id="goal-todo-label">A fazer</span>
+                <span class="goal-legend-values">
+                  <span class="mono" id="goal-todo">00:00</span>
+                  <span class="goal-pct" id="goal-todo-pct">0.00%</span>
+                </span>
+              </span>
+            </li>
+          </ul>
+        </div>
+        <p class="goal-status" id="goal-status"></p>
       </section>
 
       <section class="form-panel" aria-labelledby="form-heading">

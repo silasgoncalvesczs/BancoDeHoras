@@ -39,11 +39,27 @@ service cloud.firestore {
           )
         );
     }
+
+    match /users/{userId}/settings/{docId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && docId == 'goals'
+        && request.resource.data.keys().hasAll(['enabled', 'goalMinutes', 'updatedAt'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.goalMinutes is int
+        && request.resource.data.goalMinutes >= 0
+        && request.resource.data.goalMinutes < 100000
+        && request.resource.data.updatedAt is string;
+    }
   }
 }
 ```
 
 > Imagens opcionais são salvas **comprimidas no Firestore** (JPEG/PNG/WebP em `imageData`). MIME é validado no app; tamanho limitado nas rules.
+>
+> A **Meta de Horas** fica em `users/{uid}/settings/goals` (sincroniza entre aparelhos).
 
 4. Configure o app local:
 
@@ -71,7 +87,16 @@ A `apiKey` web do Firebase **aparece no site** — isso é normal em apps client
 - [ ] **Firestore → Rules** publicadas a partir de `firestore.rules`. Nunca `allow read, write: if true`
 - [ ] **API key** com HTTP referrer: `https://SEU_USER.github.io/*` e `http://localhost:*/*` (dev)
 - [ ] **Authentication → Settings → Authorized domains**: `localhost` e `SEU_USER.github.io`
+- [ ] **Authentication → Templates → Password reset → Customize action URL** = URL do app no Pages, ex.: `https://SEU_USER.github.io/BancoDeHoras/`
+  (sem isso o link do e-mail abre a página genérica do Firebase em inglês)
 - [ ] Teste no Rules Playground: usuário A lendo `users/{uidB}/entries/...` → **deny**
+- [ ] Mesmo teste para `users/{uidB}/settings/goals` → **deny**
+
+### Recuperação de senha
+
+1. No app: **Esqueci a senha** → envia o e-mail
+2. O link deve abrir **o próprio Banco de Horas** (tela “Nova senha”), não `firebaseapp.com/__/auth/action`
+3. Se aparecer “expirou / já foi usado”: peça um **novo** link (cada link vale uma vez; alguns apps de e-mail “clicam” no link ao escanear e invalidam)
 
 ### Na API key (Google Cloud → Credentials)
 

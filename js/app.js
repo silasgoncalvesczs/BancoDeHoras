@@ -11,6 +11,8 @@ import {
   changePassword,
   getCurrentUser,
   resetPassword,
+  verifyResetCode,
+  confirmResetPassword,
 } from "./firebase.js";
 import { TimeUtils } from "./time.js";
 import { Storage } from "./storage.js";
@@ -24,7 +26,11 @@ const els = {
   appShell: document.getElementById("app-shell"),
   authForm: document.getElementById("auth-form"),
   authEmail: document.getElementById("auth-email"),
+  authEmailField: document.getElementById("auth-email-field"),
   authPassword: document.getElementById("auth-password"),
+  authPasswordLabel: document.getElementById("auth-password-label"),
+  authPasswordConfirm: document.getElementById("auth-password-confirm"),
+  authPasswordConfirmField: document.getElementById("auth-password-confirm-field"),
   authError: document.getElementById("auth-error"),
   authSubmit: document.getElementById("auth-submit"),
   authToggle: document.getElementById("auth-toggle"),
@@ -71,6 +77,17 @@ const els = {
   statCredit: document.getElementById("stat-credit"),
   statDebit: document.getElementById("stat-debit"),
   statCount: document.getElementById("stat-count"),
+  goalPanel: document.getElementById("goal-panel"),
+  goalPie: document.getElementById("goal-pie"),
+  goalBody: document.getElementById("goal-body"),
+  goalDone: document.getElementById("goal-done"),
+  goalDonePct: document.getElementById("goal-done-pct"),
+  goalTodo: document.getElementById("goal-todo"),
+  goalTodoPct: document.getElementById("goal-todo-pct"),
+  goalTodoLabel: document.getElementById("goal-todo-label"),
+  goalStatus: document.getElementById("goal-status"),
+  goalsMetaField: document.getElementById("goals-meta-field"),
+  goalsDuration: document.getElementById("goals-duration"),
   historyBody: document.getElementById("history-body"),
   emptyState: document.getElementById("empty-state"),
   filterMonth: document.getElementById("filter-month"),
@@ -81,8 +98,12 @@ const els = {
 };
 
 let toastTimer = null;
-let authMode = "login"; // login | signup | reset
+let authMode = "login"; // login | signup | reset | confirm-reset
 let busy = false;
+/** Código do e-mail de recuperação (oobCode), quando o usuário abre o link. */
+let pendingResetCode = "";
+/** E-mail associado ao oobCode (após verify). */
+let pendingResetEmail = "";
 
 /** Data URL pendente para salvar no próximo submit. */
 let pendingImageData = null;
@@ -134,40 +155,78 @@ function showAuthSuccess(message) {
   els.authSuccess.textContent = message;
 }
 
+function clearResetQueryParams() {
+  const url = new URL(window.location.href);
+  ["mode", "oobCode", "apiKey", "lang", "continueUrl"].forEach((key) => {
+    url.searchParams.delete(key);
+  });
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, "", next || url.pathname);
+}
+
 function setAuthMode(mode) {
   authMode = mode;
   const isLogin = mode === "login";
   const isSignup = mode === "signup";
   const isReset = mode === "reset";
+  const isConfirmReset = mode === "confirm-reset";
 
-  els.authTitle.textContent = isReset
-    ? "Recuperar senha"
-    : isLogin
-      ? "Entrar"
-      : "Criar conta";
+  els.authTitle.textContent = isConfirmReset
+    ? "Nova senha"
+    : isReset
+      ? "Recuperar senha"
+      : isLogin
+        ? "Entrar"
+        : "Criar conta";
 
-  els.authSub.textContent = isReset
-    ? "Enviaremos um link de redefinição para o seu e-mail."
-    : isLogin
-      ? "Acesse seu banco de horas na nuvem."
-      : "Crie uma conta para sincronizar entre dispositivos.";
+  els.authSub.textContent = isConfirmReset
+    ? pendingResetEmail
+      ? `Defina uma nova senha para ${pendingResetEmail}.`
+      : "Defina uma nova senha para sua conta."
+    : isReset
+      ? "Enviaremos um link de redefinição para o seu e-mail."
+      : isLogin
+        ? "Acesse seu banco de horas na nuvem."
+        : "Crie uma conta para sincronizar entre dispositivos.";
 
-  els.authSubmit.textContent = isReset
-    ? "Enviar link"
-    : isLogin
-      ? "Entrar"
-      : "Cadastrar";
+  els.authSubmit.textContent = isConfirmReset
+    ? "Salvar nova senha"
+    : isReset
+      ? "Enviar link"
+      : isLogin
+        ? "Entrar"
+        : "Cadastrar";
+
+  if (els.authEmailField) {
+    els.authEmailField.hidden = isConfirmReset;
+  }
+  els.authEmail.required = !isConfirmReset;
 
   els.authPasswordField.hidden = isReset;
   els.authPassword.required = !isReset;
-  els.authPassword.autocomplete = isSignup ? "new-password" : "current-password";
+  if (els.authPasswordLabel) {
+    els.authPasswordLabel.textContent = isConfirmReset ? "Nova senha" : "Senha";
+  }
+  els.authPassword.autocomplete = isSignup || isConfirmReset ? "new-password" : "current-password";
+  els.authPassword.placeholder = isConfirmReset
+    ? "Mínimo 6 caracteres"
+    : "Mínimo 6 caracteres";
+
+  if (els.authPasswordConfirmField) {
+    els.authPasswordConfirmField.hidden = !isConfirmReset;
+  }
+  if (els.authPasswordConfirm) {
+    els.authPasswordConfirm.required = isConfirmReset;
+    if (!isConfirmReset) els.authPasswordConfirm.value = "";
+  }
 
   els.authForgot.hidden = !isLogin;
-  els.authToggle.textContent = isReset
-    ? "Voltar ao login"
-    : isLogin
-      ? "Não tem conta? Cadastre-se"
-      : "Já tem conta? Entrar";
+  els.authToggle.textContent =
+    isReset || isConfirmReset
+      ? "Voltar ao login"
+      : isLogin
+        ? "Não tem conta? Cadastre-se"
+        : "Já tem conta? Entrar";
 
   showAuthError("");
   showAuthSuccess("");
@@ -184,12 +243,85 @@ function setBusyAuth(isBusy) {
   els.authSubmit.disabled = isBusy;
 }
 
+async function beginConfirmResetFromLink() {
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode");
+  const oobCode = params.get("oobCode");
+
+  if (mode !== "resetPassword" || !oobCode) return false;
+
+  pendingResetCode = oobCode;
+  pendingResetEmail = "";
+
+  try {
+    pendingResetEmail = await verifyResetCode(oobCode);
+    if (els.authEmail) els.authEmail.value = pendingResetEmail;
+    setAuthMode("confirm-reset");
+    setView("auth");
+    return true;
+  } catch (error) {
+    pendingResetCode = "";
+    pendingResetEmail = "";
+    clearResetQueryParams();
+    setAuthMode("reset");
+    setView("auth");
+    showAuthError(
+      error.message ||
+        "Este link de recuperação expirou ou já foi usado. Solicite um novo."
+    );
+    return true;
+  }
+}
+
 async function handleAuthSubmit(event) {
   event.preventDefault();
   if (busy) return;
 
   const email = els.authEmail.value.trim();
   const password = els.authPassword.value;
+  const passwordConfirm = els.authPasswordConfirm?.value || "";
+
+  if (authMode === "confirm-reset") {
+    if (!pendingResetCode) {
+      showAuthError("Link de recuperação inválido. Solicite um novo.");
+      setAuthMode("reset");
+      return;
+    }
+    if (!password || password.length < 6) {
+      showAuthError("A nova senha deve ter pelo menos 6 caracteres.");
+      els.authPassword.focus();
+      return;
+    }
+    if (password !== passwordConfirm) {
+      showAuthError("A confirmação não confere com a nova senha.");
+      els.authPasswordConfirm?.focus();
+      return;
+    }
+
+    try {
+      setBusyAuth(true);
+      showAuthError("");
+      showAuthSuccess("");
+      await confirmResetPassword(pendingResetCode, password);
+      pendingResetCode = "";
+      pendingResetEmail = "";
+      clearResetQueryParams();
+      els.authPassword.value = "";
+      if (els.authPasswordConfirm) els.authPasswordConfirm.value = "";
+      setAuthMode("login");
+      showAuthSuccess("Senha redefinida. Entre com a nova senha.");
+    } catch (error) {
+      showAuthError(error.message || "Não foi possível redefinir a senha.");
+      if (/expirou|inválido|já foi usado|já utilizado/i.test(error.message || "")) {
+        pendingResetCode = "";
+        pendingResetEmail = "";
+        clearResetQueryParams();
+      }
+    } finally {
+      setBusyAuth(false);
+    }
+    return;
+  }
 
   if (!email) {
     showAuthError("Informe o e-mail.");
@@ -209,7 +341,9 @@ async function handleAuthSubmit(event) {
 
     if (authMode === "reset") {
       await resetPassword(email);
-      showAuthSuccess("Link enviado. Verifique sua caixa de entrada e o spam.");
+      showAuthSuccess(
+        "Link enviado. Abra o e-mail no celular/computador e use o link uma vez. Verifique também o spam."
+      );
       return;
     }
 
@@ -383,6 +517,92 @@ function renderBalance(allEntries) {
     els.balanceHint.textContent = "Saldo negativo — mais compensações que créditos";
   } else {
     els.balanceHint.textContent = "Banco zerado";
+  }
+
+  renderGoals(allEntries);
+}
+
+function syncGoalsControls(goals) {
+  const enabled = Boolean(goals.enabled);
+  document.querySelectorAll("[data-goals-set]").forEach((btn) => {
+    const on = btn.dataset.goalsSet === "on";
+    btn.setAttribute("aria-pressed", String(on === enabled));
+  });
+
+  if (els.goalsMetaField) {
+    els.goalsMetaField.hidden = !enabled;
+  }
+
+  if (els.goalsDuration && document.activeElement !== els.goalsDuration) {
+    els.goalsDuration.value =
+      goals.goalMinutes > 0 ? TimeUtils.formatDuration(goals.goalMinutes) : "";
+  }
+}
+
+function renderGoals(allEntries) {
+  const goals = Storage.getGoals();
+  syncGoalsControls(goals);
+
+  if (!els.goalPanel) return;
+
+  const enabled = Boolean(goals.enabled);
+  els.goalPanel.hidden = !enabled;
+  document.querySelector(".layout")?.classList.toggle("has-goals", enabled);
+  if (!enabled) return;
+
+  const meta = goals.goalMinutes;
+  const totals = Storage.computeTotals(allEntries);
+  const realizado = totals.credit;
+
+  if (meta <= 0) {
+    els.goalBody.hidden = true;
+    els.goalStatus.textContent = "Defina a meta (hh:mm) no menu da conta.";
+    els.goalStatus.classList.remove("is-done", "is-over");
+    els.goalPie.classList.add("is-empty");
+    els.goalPie.classList.remove("is-over");
+    els.goalPie.style.setProperty("--done-pct", "0%");
+    if (els.goalTodoLabel) els.goalTodoLabel.textContent = "A fazer";
+    return;
+  }
+
+  els.goalBody.hidden = false;
+
+  const exceeded = realizado > meta;
+  const reached = realizado >= meta;
+  const surplus = Math.max(realizado - meta, 0);
+  const aFazer = Math.max(meta - realizado, 0);
+  const rawRatio = realizado / meta;
+  const pieRatio = Math.min(1, rawRatio);
+  const donePct = Math.round(rawRatio * 10000) / 100;
+  const extraPct = Math.round(Math.max(0, rawRatio - 1) * 10000) / 100;
+  const todoPct = Math.round((1 - pieRatio) * 10000) / 100;
+
+  els.goalDone.textContent = TimeUtils.formatDuration(realizado);
+  els.goalDonePct.textContent = `${donePct.toFixed(2)}%`;
+  els.goalPie.classList.remove("is-empty");
+  els.goalPie.classList.toggle("is-over", exceeded);
+  els.goalPie.style.setProperty("--done-pct", `${(pieRatio * 100).toFixed(2)}%`);
+
+  if (els.goalTodoLabel) {
+    els.goalTodoLabel.textContent = exceeded ? "Excedente" : "A fazer";
+  }
+
+  if (exceeded) {
+    els.goalTodo.textContent = TimeUtils.formatDuration(surplus, { signed: true });
+    els.goalTodoPct.textContent = `+${extraPct.toFixed(2)}%`;
+    els.goalStatus.textContent = `Superou a meta em ${TimeUtils.formatDuration(surplus)} (+${extraPct.toFixed(2)}%)`;
+    els.goalStatus.classList.add("is-done", "is-over");
+  } else if (reached) {
+    els.goalTodo.textContent = TimeUtils.formatDuration(0);
+    els.goalTodoPct.textContent = "0.00%";
+    els.goalStatus.textContent = "Meta atingida";
+    els.goalStatus.classList.add("is-done");
+    els.goalStatus.classList.remove("is-over");
+  } else {
+    els.goalTodo.textContent = TimeUtils.formatDuration(aFazer);
+    els.goalTodoPct.textContent = `${todoPct.toFixed(2)}%`;
+    els.goalStatus.textContent = `Meta: ${TimeUtils.formatDuration(meta)}`;
+    els.goalStatus.classList.remove("is-done", "is-over");
   }
 }
 
@@ -749,11 +969,116 @@ function handleThemeChoice(theme) {
   showToast(next === "dark" ? "Tema escuro ativado." : "Tema claro ativado.");
 }
 
+function goalsPermissionMessage(error) {
+  const code = error?.code || "";
+  const raw = String(error?.message || "");
+  if (
+    code === "permission-denied" ||
+    /insufficient permissions|permission/i.test(raw)
+  ) {
+    return "Sem permissão no Firestore. Publique as Rules atualizadas (arquivo firestore.rules) no Firebase Console.";
+  }
+  return raw || "Não foi possível salvar a meta.";
+}
+
+async function handleGoalsChoice(value) {
+  const enabled = value === "on";
+  try {
+    await Storage.saveGoals({ enabled });
+    renderGoals(Storage.listEntries());
+    showToast(enabled ? "Meta de Horas ativada." : "Meta de Horas desativada.");
+  } catch (error) {
+    console.error(error);
+    showToast(goalsPermissionMessage(error));
+  }
+}
+
+async function persistGoalsDuration() {
+  if (!els.goalsDuration || busy) return;
+
+  const normalized = TimeUtils.normalizeDurationInput(els.goalsDuration.value);
+  els.goalsDuration.value = normalized === "00:00" ? "" : normalized;
+
+  let goalMinutes = 0;
+  if (normalized && normalized !== "00:00") {
+    const parsed = TimeUtils.parseDuration(normalized);
+    if (parsed === null) {
+      showToast("Meta inválida. Use hh:mm (ex.: 44:00).");
+      const current = Storage.getGoals();
+      els.goalsDuration.value =
+        current.goalMinutes > 0 ? TimeUtils.formatDuration(current.goalMinutes) : "";
+      return;
+    }
+    goalMinutes = parsed;
+  }
+
+  const current = Storage.getGoals();
+  if (current.goalMinutes === goalMinutes) return;
+
+  try {
+    await Storage.saveGoals({ goalMinutes });
+    renderGoals(Storage.listEntries());
+    showToast("Meta salva na nuvem.");
+  } catch (error) {
+    console.error(error);
+    showToast(goalsPermissionMessage(error));
+  }
+}
+
+function bindDurationField(input, { onCommit } = {}) {
+  if (!input) return;
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && typeof onCommit === "function") {
+      event.preventDefault();
+      input.blur();
+      return;
+    }
+
+    const allowed = [
+      "Backspace",
+      "Delete",
+      "Tab",
+      "Escape",
+      "Enter",
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+    ];
+    if (allowed.includes(event.key) || event.ctrlKey || event.metaKey) return;
+    if (!/^\d$/.test(event.key)) {
+      event.preventDefault();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    input.value = TimeUtils.maskDurationInput(input.value);
+  });
+
+  input.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const text = event.clipboardData?.getData("text") || "";
+    input.value = TimeUtils.maskDurationInput(text);
+  });
+
+  input.addEventListener("blur", () => {
+    const normalized = TimeUtils.normalizeDurationInput(input.value);
+    input.value = normalized === "00:00" ? "" : normalized;
+    if (typeof onCommit === "function") onCommit();
+  });
+}
+
 function bindEvents() {
   els.authForm.addEventListener("submit", handleAuthSubmit);
   els.authForgot.addEventListener("click", () => setAuthMode("reset"));
   els.authToggle.addEventListener("click", () => {
-    if (authMode === "reset" || authMode === "signup") {
+    if (authMode === "reset" || authMode === "confirm-reset" || authMode === "signup") {
+      pendingResetCode = "";
+      pendingResetEmail = "";
+      clearResetQueryParams();
       setAuthMode("login");
       return;
     }
@@ -777,41 +1102,8 @@ function bindEvents() {
     handleImageFileSelected(file);
   });
 
-  els.duration.addEventListener("keydown", (event) => {
-    const allowed = [
-      "Backspace",
-      "Delete",
-      "Tab",
-      "Escape",
-      "Enter",
-      "ArrowLeft",
-      "ArrowRight",
-      "ArrowUp",
-      "ArrowDown",
-      "Home",
-      "End",
-    ];
-    if (allowed.includes(event.key) || event.ctrlKey || event.metaKey) return;
-    if (!/^\d$/.test(event.key)) {
-      event.preventDefault();
-    }
-  });
-
-  els.duration.addEventListener("input", () => {
-    const masked = TimeUtils.maskDurationInput(els.duration.value);
-    els.duration.value = masked;
-  });
-
-  els.duration.addEventListener("paste", (event) => {
-    event.preventDefault();
-    const text = event.clipboardData?.getData("text") || "";
-    els.duration.value = TimeUtils.maskDurationInput(text);
-  });
-
-  els.duration.addEventListener("blur", () => {
-    const normalized = TimeUtils.normalizeDurationInput(els.duration.value);
-    els.duration.value = normalized === "00:00" ? "" : normalized;
-  });
+  bindDurationField(els.duration);
+  bindDurationField(els.goalsDuration, { onCommit: () => persistGoalsDuration() });
 
   els.filterMonth.addEventListener("change", () => {
     renderHistory(getFilteredEntries());
@@ -830,6 +1122,12 @@ function bindEvents() {
     const themeBtn = event.target.closest("[data-theme-set]");
     if (themeBtn) {
       handleThemeChoice(themeBtn.dataset.themeSet);
+      return;
+    }
+
+    const goalsBtn = event.target.closest("[data-goals-set]");
+    if (goalsBtn) {
+      handleGoalsChoice(goalsBtn.dataset.goalsSet);
       return;
     }
 
@@ -867,6 +1165,10 @@ function bindEvents() {
   Storage.onEntriesChange(() => {
     if (!els.appShell.hidden) refreshUI();
   });
+
+  Storage.onGoalsChange(() => {
+    if (!els.appShell.hidden) renderGoals(Storage.listEntries());
+  });
 }
 
 async function onUserSignedIn(user) {
@@ -894,6 +1196,8 @@ function onUserSignedOut() {
   els.authPassword.value = "";
   closeAllModals();
   closeMenus();
+  document.querySelector(".layout")?.classList.remove("has-goals");
+  if (els.goalPanel) els.goalPanel.hidden = true;
   setAuthMode("login");
   setView("auth");
 }
@@ -925,9 +1229,32 @@ function init() {
       }
     }, 8000);
 
-    onAuth((user) => {
+    onAuth(async (user) => {
       resolved = true;
       clearTimeout(timeoutId);
+
+      const params = new URLSearchParams(window.location.search);
+      const hasResetLink =
+        params.get("mode") === "resetPassword" && Boolean(params.get("oobCode"));
+
+      if (hasResetLink) {
+        if (user) {
+          try {
+            await signOut();
+          } catch (_) {
+            /* ignore */
+          }
+          return;
+        }
+        const handled = await beginConfirmResetFromLink();
+        if (handled) return;
+      }
+
+      if (authMode === "confirm-reset" && pendingResetCode) {
+        setView("auth");
+        return;
+      }
+
       if (user) {
         onUserSignedIn(user);
       } else {

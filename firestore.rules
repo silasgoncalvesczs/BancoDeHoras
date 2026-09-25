@@ -24,5 +24,19 @@ service cloud.firestore {
           )
         );
     }
+
+    match /users/{userId}/settings/{docId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && docId == 'goals'
+        && request.resource.data.keys().hasAll(['enabled', 'goalMinutes', 'updatedAt'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.goalMinutes is int
+        && request.resource.data.goalMinutes >= 0
+        && request.resource.data.goalMinutes < 100000
+        && request.resource.data.updatedAt is string;
+    }
   }
 }

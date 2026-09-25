@@ -1,6 +1,7 @@
 /**
  * Persistência no Cloud Firestore (por usuário autenticado).
  * Caminho: users/{uid}/entries/{entryId}
+ * Meta: users/{uid}/settings/goals
  * Imagem opcional: campo imageData (JPEG data URL comprimido).
  *
  * Mantém cache em memória + listener em tempo real.
@@ -22,11 +23,16 @@ import { isSafeImageDataUrl } from "./images.js";
 const LOCAL_KEY = "banco-horas:v1";
 const SCHEMA_VERSION = 1;
 const MAX_MINUTES = 999 * 60 + 59;
+const DEFAULT_GOALS = { enabled: false, goalMinutes: 0 };
 
 let currentUid = null;
 let cache = [];
 let unsubscribe = null;
 const listeners = new Set();
+
+let goalsCache = { ...DEFAULT_GOALS };
+let goalsUnsubscribe = null;
+const goalsListeners = new Set();
 
 function normalizeEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
@@ -96,6 +102,87 @@ export function onEntriesChange(callback) {
   return () => listeners.delete(callback);
 }
 
+function goalsDocRef() {
+  if (!currentUid) throw new Error("Usuário não autenticado.");
+  return doc(db, "users", currentUid, "settings", "goals");
+}
+
+function normalizeGoals(data) {
+  const enabled = Boolean(data?.enabled);
+  let goalMinutes = Number(data?.goalMinutes);
+  if (!Number.isFinite(goalMinutes) || goalMinutes < 0) goalMinutes = 0;
+  goalMinutes = Math.min(Math.trunc(goalMinutes), MAX_MINUTES);
+  return { enabled, goalMinutes };
+}
+
+function notifyGoals() {
+  const snapshot = getGoals();
+  goalsListeners.forEach((fn) => fn(snapshot));
+}
+
+function stopGoalsListener() {
+  if (goalsUnsubscribe) {
+    goalsUnsubscribe();
+    goalsUnsubscribe = null;
+  }
+  goalsCache = { ...DEFAULT_GOALS };
+}
+
+function startGoalsListener() {
+  stopGoalsListener();
+  if (!currentUid) {
+    notifyGoals();
+    return;
+  }
+
+  goalsUnsubscribe = onSnapshot(
+    goalsDocRef(),
+    (snapshot) => {
+      goalsCache = snapshot.exists()
+        ? normalizeGoals(snapshot.data())
+        : { ...DEFAULT_GOALS };
+      notifyGoals();
+    },
+    (error) => {
+      console.error("Goals listener error:", error);
+      goalsCache = { ...DEFAULT_GOALS };
+      notifyGoals();
+    }
+  );
+}
+
+export function getGoals() {
+  return { ...goalsCache };
+}
+
+export function onGoalsChange(callback) {
+  goalsListeners.add(callback);
+  callback(getGoals());
+  return () => goalsListeners.delete(callback);
+}
+
+export async function saveGoals(partial) {
+  requireUser();
+  const next = normalizeGoals({
+    ...goalsCache,
+    ...partial,
+  });
+
+  await setDoc(
+    goalsDocRef(),
+    {
+      enabled: next.enabled,
+      goalMinutes: next.goalMinutes,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+
+  goalsCache = next;
+  notifyGoals();
+  return next;
+}
+
 export function setUser(uid) {
   if (unsubscribe) {
     unsubscribe();
@@ -104,9 +191,11 @@ export function setUser(uid) {
 
   currentUid = uid || null;
   cache = [];
+  stopGoalsListener();
 
   if (!currentUid) {
     notify();
+    notifyGoals();
     return;
   }
 
@@ -123,6 +212,8 @@ export function setUser(uid) {
       notify();
     }
   );
+
+  startGoalsListener();
 }
 
 export function clearUser() {
@@ -326,4 +417,7 @@ export const Storage = {
   readLocalEntries,
   clearLocalEntries,
   migrateLocalIfCloudEmpty,
+  getGoals,
+  onGoalsChange,
+  saveGoals,
 };

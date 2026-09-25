@@ -14,12 +14,15 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   sendPasswordResetEmail,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+auth.languageCode = "pt";
 const db = getFirestore(app);
 
 function mapAuthError(error) {
@@ -35,8 +38,21 @@ function mapAuthError(error) {
     "auth/network-request-failed": "Falha de rede. Verifique sua conexão.",
     "auth/requires-recent-login": "Por segurança, confirme sua senha atual e tente de novo.",
     "auth/missing-email": "Informe o e-mail.",
+    "auth/expired-action-code":
+      "Este link de recuperação expirou ou já foi usado. Solicite um novo em “Esqueci a senha”.",
+    "auth/invalid-action-code":
+      "Link de recuperação inválido ou já utilizado. Solicite um novo em “Esqueci a senha”.",
+    "auth/user-disabled": "Esta conta está desativada.",
   };
   return messages[code] || error?.message || "Não foi possível autenticar.";
+}
+
+/** URL base do app (para o link de e-mail voltar ao site, não à página genérica do Firebase). */
+export function getAppContinueUrl() {
+  const { origin, pathname } = window.location;
+  const basePath = pathname.replace(/index\.html$/i, "");
+  const normalized = basePath.endsWith("/") ? basePath : `${basePath}/`;
+  return `${origin}${normalized === "//" ? "/" : normalized}`;
 }
 
 function getCurrentUser() {
@@ -106,7 +122,36 @@ async function resetPassword(email) {
   if (!normalized) throw new Error("Informe o e-mail.");
 
   try {
-    await sendPasswordResetEmail(auth, normalized);
+    await sendPasswordResetEmail(auth, normalized, {
+      url: getAppContinueUrl(),
+      handleCodeInApp: false,
+    });
+  } catch (error) {
+    throw new Error(mapAuthError(error));
+  }
+}
+
+/** Valida o código do e-mail e devolve o e-mail da conta. */
+async function verifyResetCode(oobCode) {
+  const code = String(oobCode || "").trim();
+  if (!code) throw new Error("Link de recuperação incompleto.");
+
+  try {
+    return await verifyPasswordResetCode(auth, code);
+  } catch (error) {
+    throw new Error(mapAuthError(error));
+  }
+}
+
+async function confirmResetPassword(oobCode, newPassword) {
+  const code = String(oobCode || "").trim();
+  if (!code) throw new Error("Link de recuperação incompleto.");
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
+  }
+
+  try {
+    await confirmPasswordReset(auth, code, newPassword);
   } catch (error) {
     throw new Error(mapAuthError(error));
   }
@@ -127,5 +172,7 @@ export {
   updateDisplayName,
   changePassword,
   resetPassword,
+  verifyResetCode,
+  confirmResetPassword,
   onAuth,
 };
