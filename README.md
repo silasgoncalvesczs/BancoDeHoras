@@ -18,7 +18,7 @@ Hospede no GitHub Pages. A configuração do Supabase no site público é injeta
    - **Site URL**: URL do app, ex.: `https://SEU_USER.github.io/BancoDeHoras/`
    - **Redirect URLs**: a mesma URL e `http://localhost:*/**` (dev)
 4. **Authentication → Sign In / Providers → Email**: deixe habilitado. *Confirm email* ligado é o recomendado
-5. (Opcional) **Authentication → Emails → Templates**: traduza os e-mails de confirmação e de recuperação de senha
+5. **SMTP próprio** (necessário para outros usuários): o SMTP padrão do Supabase só envia para membros da equipe do projeto e tem limite muito baixo. Em **Authentication → Emails → Set up SMTP** configure, por exemplo, o Gmail (`smtp.gmail.com`, porta `465`, usuário = seu Gmail, senha = [senha de app](https://myaccount.google.com/apppasswords)). Depois disso os **templates** ficam editáveis (traduza *Confirm signup* e *Reset password*, mantendo `{{ .ConfirmationURL }}`) e ajuste **Authentication → Rate Limits**. Para testar só com a sua conta, pode pular este passo
 6. Configure o app local:
 
 ```bash
