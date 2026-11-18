@@ -32,40 +32,46 @@ jobs:
             --exclude '.git' \
             --exclude '.github' \
             --exclude 'publish' \
-            --exclude 'firestore.rules' \
+            --exclude 'supabase' \
+            --exclude 'migration' \
+            --exclude 'js/supabase-config.js' \
             --exclude 'js/firebase-config.js' \
             ./ publish/
 
-      - name: Generate Firebase config from Secrets
+      - name: Generate Supabase config from Secrets
         env:
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           python3 <<'PY'
           import json
           import os
           from pathlib import Path
 
-          keys = [
-              "FIREBASE_API_KEY",
-              "FIREBASE_AUTH_DOMAIN",
-              "FIREBASE_PROJECT_ID",
-              "FIREBASE_STORAGE_BUCKET",
-              "FIREBASE_MESSAGING_SENDER_ID",
-              "FIREBASE_APP_ID",
-          ]
+          keys = ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
           missing = [k for k in keys if not os.environ.get(k)]
           if missing:
               raise SystemExit(f"Missing secrets: {', '.join(missing)}")
 
-          def q(name: str) -> str:
-              return json.dumps(os.environ[name])
+          url = os.environ["SUPABASE_URL"].strip().rstrip("/")
+          if not url.startswith("https://"):
+              raise SystemExit("SUPABASE_URL deve começar com https://")
 
-          out = Path("publish/js/firebase-config.js")
+          # Trava de segurança: nunca publicar a chave secreta no site.
+          import base64
+          key = os.environ["SUPABASE_ANON_KEY"].strip()
+          if key.startswith("sb_secret_"):
+              raise SystemExit("SUPABASE_ANON_KEY contém uma chave SECRETA. Use a anon/publishable.")
+          parts = key.split(".")
+          if len(parts) == 3:
+              try:
+                  payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+              except Exception:
+                  payload = {}
+              if payload.get("role") == "service_role":
+                  raise SystemExit("SUPABASE_ANON_KEY é a service_role. Use a chave anon.")
+
+          out = Path("publish/js/supabase-config.js")
           out.parent.mkdir(parents=True, exist_ok=True)
           out.write_text(
               "\n".join(
@@ -74,13 +80,9 @@ jobs:
                       " * Gerado automaticamente no deploy (GitHub Actions).",
                       " * Nao editar manualmente neste ambiente.",
                       " */",
-                      "export const firebaseConfig = {",
-                      f"  apiKey: {q('FIREBASE_API_KEY')},",
-                      f"  authDomain: {q('FIREBASE_AUTH_DOMAIN')},",
-                      f"  projectId: {q('FIREBASE_PROJECT_ID')},",
-                      f"  storageBucket: {q('FIREBASE_STORAGE_BUCKET')},",
-                      f"  messagingSenderId: {q('FIREBASE_MESSAGING_SENDER_ID')},",
-                      f"  appId: {q('FIREBASE_APP_ID')},",
+                      "export const supabaseConfig = {",
+                      f"  url: {json.dumps(url)},",
+                      f"  anonKey: {json.dumps(os.environ['SUPABASE_ANON_KEY'].strip())},",
                       "};",
                       "",
                   ]
@@ -92,13 +94,14 @@ jobs:
 
       - name: Verify publish contents
         run: |
-          test -f publish/js/firebase-config.js
+          test -f publish/js/supabase-config.js
+          test -f publish/js/supabase.js
           test -f publish/js/images.js
           test -f publish/index.html
           test -f publish/sw.js
           echo "publish/js:"
           ls -la publish/js/
-          echo "Config OK ($(wc -c < publish/js/firebase-config.js) bytes)"
+          echo "Config OK ($(wc -c < publish/js/supabase-config.js) bytes)"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

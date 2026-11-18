@@ -1,126 +1,88 @@
 # Banco de Horas
 
-App web para controlar horas extras e compensações, com sync na nuvem via Firebase.
+App web para controlar horas extras e compensações, com sync na nuvem via [Supabase](https://supabase.com) (Auth + Postgres + Storage).
 
 ## Demo / uso próprio
 
-Hospede no GitHub Pages. A configuração do Firebase no site público é injetada no deploy pelos **Secrets** do repositório.
+Hospede no GitHub Pages. A configuração do Supabase no site público é injetada no deploy pelos **Secrets** do repositório.
 
-## Usar com o SEU Firebase (clone)
+## Usar com o SEU Supabase (clone)
 
-1. Crie um projeto em [Firebase Console](https://console.firebase.google.com/)
-2. Ative **Authentication** (e-mail/senha) e **Firestore**
-3. Publique as regras do arquivo `firestore.rules` (Firebase Console → Firestore → Rules):
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId}/entries/{entryId} {
-      allow read, delete: if request.auth != null && request.auth.uid == userId;
-
-      allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.data.keys().hasAll(['date', 'type', 'minutes', 'note', 'createdAt', 'updatedAt'])
-        && request.resource.data.date is string
-        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.type in ['credit', 'debit']
-        && request.resource.data.minutes is int
-        && request.resource.data.minutes > 0
-        && request.resource.data.minutes < 100000
-        && request.resource.data.note is string
-        && request.resource.data.note.size() <= 120
-        && (
-          !('imageData' in request.resource.data)
-          || (
-            request.resource.data.imageData is string
-            && request.resource.data.imageData.size() > 22
-            && request.resource.data.imageData.size() < 750000
-          )
-        );
-    }
-
-    match /users/{userId}/settings/{docId} {
-      allow read, delete: if request.auth != null && request.auth.uid == userId;
-
-      allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && docId == 'goals'
-        && request.resource.data.keys().hasAll(['enabled', 'goalMinutes', 'updatedAt'])
-        && request.resource.data.enabled is bool
-        && request.resource.data.goalMinutes is int
-        && request.resource.data.goalMinutes >= 0
-        && request.resource.data.goalMinutes < 100000
-        && request.resource.data.updatedAt is string;
-    }
-  }
-}
-```
-
-> Imagens opcionais são salvas **comprimidas no Firestore** (JPEG/PNG/WebP em `imageData`). MIME é validado no app; tamanho limitado nas rules.
->
-> A **Meta de Horas** fica em `users/{uid}/settings/goals` (sincroniza entre aparelhos).
-
-4. Configure o app local:
+1. Crie um projeto em [supabase.com/dashboard](https://supabase.com/dashboard) (região próxima, ex.: São Paulo)
+2. **SQL Editor → New query** → cole e rode o arquivo [`supabase/schema.sql`](supabase/schema.sql) inteiro.
+   Ele cria:
+   - `public.entries` (lançamentos) e `public.goals` (meta) com **RLS**: cada usuário só lê/grava as próprias linhas
+   - bucket privado **`entry-images`** (fotos, máx. 1 MB, JPEG/PNG/WebP) com policies por pasta do usuário
+   - Realtime nas duas tabelas (sincroniza entre aparelhos)
+3. **Authentication → URL Configuration**
+   - **Site URL**: URL do app, ex.: `https://SEU_USER.github.io/BancoDeHoras/`
+   - **Redirect URLs**: a mesma URL e `http://localhost:*/**` (dev)
+4. **Authentication → Sign In / Providers → Email**: deixe habilitado. *Confirm email* ligado é o recomendado
+5. (Opcional) **Authentication → Emails → Templates**: traduza os e-mails de confirmação e de recuperação de senha
+6. Configure o app local:
 
 ```bash
-cp js/firebase-config.example.js js/firebase-config.js
+cp js/supabase-config.example.js js/supabase-config.js
 ```
 
-5. Edite `js/firebase-config.js` com os dados do **seu** app Web no Firebase
-6. Abra com um servidor local (não use `file://`), por exemplo Live Server
+7. Edite `js/supabase-config.js` com a **Project URL** e a chave **anon / publishable** (Project Settings → API)
+8. Abra com um servidor local (não use `file://`), por exemplo Live Server
 
-`js/firebase-config.js` não entra no Git (está no `.gitignore`).
+`js/supabase-config.js` não entra no Git (está no `.gitignore`).
 
 ## Segurança (checklist)
 
-A `apiKey` web do Firebase **aparece no site** — isso é normal em apps client-side. O que protege os dados são Auth + regras + restrições da key.
+A chave **anon/publishable** aparece no site — isso é normal. O que protege os dados é o **RLS** (Row Level Security) das tabelas e do Storage.
 
-### No repositório / deploy
-
-- [x] `js/firebase-config.js` no `.gitignore` (não versionar config local)
-- [x] Secrets no GitHub Actions para o deploy
-- [ ] Nunca commitar service account / Admin SDK / senhas
-
-### No Firebase Console (obrigatório)
-
-- [ ] **Firestore → Rules** publicadas a partir de `firestore.rules`. Nunca `allow read, write: if true`
-- [ ] **API key** com HTTP referrer: `https://SEU_USER.github.io/*` e `http://localhost:*/*` (dev)
-- [ ] **Authentication → Settings → Authorized domains**: `localhost` e `SEU_USER.github.io`
-- [ ] **Authentication → Templates → Password reset → Customize action URL** = URL do app no Pages, ex.: `https://SEU_USER.github.io/BancoDeHoras/`
-  (sem isso o link do e-mail abre a página genérica do Firebase em inglês)
-- [ ] Teste no Rules Playground: usuário A lendo `users/{uidB}/entries/...` → **deny**
-- [ ] Mesmo teste para `users/{uidB}/settings/goals` → **deny**
+- [ ] `supabase/schema.sql` executado (RLS ativo em `entries` e `goals`; bucket `entry-images` **privado**)
+- [ ] Nunca usar a chave **service_role / secret** no site (o deploy recusa publicar se ela for colocada no secret)
+- [ ] Teste: logado como usuário A, `select * from entries` via API só retorna linhas de A
+- [ ] Site URL e Redirect URLs configurados (senão o link de e-mail não volta para o app)
+- [ ] Para evitar contas spam: **Authentication → Attack Protection** (CAPTCHA) ou desativar *Allow new users to sign up*
 
 ### Recuperação de senha
 
 1. No app: **Esqueci a senha** → envia o e-mail
-2. O link deve abrir **o próprio Banco de Horas** (tela “Nova senha”), não `firebaseapp.com/__/auth/action`
+2. O link abre **o próprio Banco de Horas** na tela “Nova senha”
 3. Se aparecer “expirou / já foi usado”: peça um **novo** link (cada link vale uma vez; alguns apps de e-mail “clicam” no link ao escanear e invalidam)
 
-### Na API key (Google Cloud → Credentials)
+> O SMTP padrão do Supabase tem limite baixo de envios por hora. Para uso real, configure um SMTP próprio em **Project Settings → Authentication → SMTP**.
 
-- [ ] Application restrictions → **HTTP referrers (web sites)**
-- [ ] Referrers sugeridos:
-  - `https://SEU_USER.github.io/*`
-  - `http://localhost:*/*` (só se desenvolver local)
-- [ ] (Opcional) API restrictions: só Identity Toolkit, Firestore, etc.
+## Migração Firebase → Supabase (uma vez)
 
-### O que a key pública não permite (com regras certas)
+O script [`migration/migrate.mjs`](migration/migrate.mjs) copia **contas (com senha), lançamentos, metas e fotos**. É seguro rodar mais de uma vez (não duplica).
 
-- Ler/escrever lançamentos de outra conta
-- Bypass de login
+Pré-requisitos: Node.js 20.6+, [Firebase CLI](https://firebase.google.com/docs/cli) (`npm i -g firebase-tools`) e o `schema.sql` já executado no Supabase.
 
-### O que ainda é possível mitigar
+1. **Exporte os usuários do Firebase** (inclui o hash das senhas):
+   ```bash
+   cd migration
+   firebase login
+   firebase auth:export users.json --format=json --project SEU_PROJECT_ID
+   ```
+2. **Parâmetros do hash**: Console Firebase → Authentication → Usuários → menu **⋮** → *Parâmetros de hash de senha*
+3. **Service account**: Console Firebase → Configurações do projeto → Contas de serviço → *Gerar nova chave privada* → salve como `migration/service-account.json`
+4. `cp .env.example .env` e preencha (incluindo a **service_role** do Supabase — só neste arquivo local)
+5. Rode:
+   ```bash
+   npm install
+   npm run teste                                              # simulação
+   node --env-file=.env migrate.mjs --only=SEU@EMAIL.com      # migra só a sua conta
+   ```
+6. **Valide com a sua conta**: rode o app apontando para o Supabase, entre com a **senha de sempre** e confira lançamentos, fotos e meta.
+   - Se a senha não funcionar, use “Esqueci a senha” e, para os demais, rode com `--sem-senha` (todos redefinem no 1º acesso).
+7. Migre todos: `npm run migrar`. Confira `migration/migration-report.json` (lista quem precisa redefinir a senha)
+8. Faça o deploy (seção abaixo). Mantenha o projeto Firebase por algumas semanas como backup antes de apagá-lo
+9. Apague `users.json`, `service-account.json` e `.env` da pasta `migration/` (contêm dados sensíveis; já estão no `.gitignore`)
 
-- Criação de contas spam no seu projeto Auth → restrição de referrer; ou criar usuários só pelo Console e remover cadastro público no app
+> Os IDs de usuário mudam (Firebase usa IDs próprios, o Supabase usa UUID). O relatório guarda a correspondência.
 
 ## PWA
 
 O app é instalável (manifest + service worker). No celular/desktop, use “Instalar app” / “Adicionar à tela inicial”.
 
 - UI e assets ficam em cache (abre offline)
-- Login e sync com Firebase **precisam de internet**
+- Login e sync **precisam de internet**
 
 ## Estrutura
 
@@ -128,36 +90,36 @@ O app é instalável (manifest + service worker). No celular/desktop, use “Ins
 index.html
 manifest.webmanifest
 sw.js
-firestore.rules
 css/styles.css
 assets/
   logo.png
   icons/
 js/
-  app.js
-  firebase.js
-  firebase-config.example.js
-  storage.js
+  app.js                    # interface
+  supabase.js               # client + auth
+  supabase-config.example.js
+  storage.js                # lançamentos, metas, fotos (Storage)
   time.js
   export.js
   theme.js
-  images.js
+  images.js                 # compressão das fotos
+supabase/
+  schema.sql                # tabelas, RLS, bucket, realtime
+migration/
+  migrate.mjs               # migração única Firebase → Supabase
 ```
 
 ## Deploy (mantenedor)
 
-> **Obrigatório:** em **Settings → Pages → Build and deployment → Source**,  
-> escolha **GitHub Actions** (não “Deploy from a branch”).  
-> Com “Deploy from a branch”, o `firebase-config.js` não sobe (está no `.gitignore`) → **404** e o app trava.
+> **Obrigatório:** em **Settings → Pages → Build and deployment → Source**,
+> escolha **GitHub Actions** (não “Deploy from a branch”).
+> Com “Deploy from a branch”, o `supabase-config.js` não sobe (está no `.gitignore`) → **404** e o app trava.
 
 1. Secrets em **Settings → Secrets and variables → Actions**:
-   - `FIREBASE_API_KEY`
-   - `FIREBASE_AUTH_DOMAIN`
-   - `FIREBASE_PROJECT_ID`
-   - `FIREBASE_STORAGE_BUCKET`
-   - `FIREBASE_MESSAGING_SENDER_ID`
-   - `FIREBASE_APP_ID`
+   - `SUPABASE_URL` — ex.: `https://abcd1234.supabase.co`
+   - `SUPABASE_ANON_KEY` — chave **anon / publishable** (nunca a service_role)
+   - (os antigos `FIREBASE_*` podem ser apagados depois da migração)
 2. **Settings → Pages → Source**: **GitHub Actions**
 3. **Actions** → **Deploy GitHub Pages** → **Run workflow** (ou push na `main`)
-4. Confirme que `https://SEU_USER.github.io/BancoDeHoras/js/firebase-config.js` abre o JS (não 404)
+4. Confirme que `https://SEU_USER.github.io/BancoDeHoras/js/supabase-config.js` abre o JS (não 404)
 5. Hard refresh no app (Ctrl+Shift+R)

@@ -1,5 +1,13 @@
+js/supabase-config.js
 js/firebase-config.js
 publish/
 .DS_Store
 Thumbs.db
 *.log
+
+# Migração Firebase → Supabase (segredos e dados exportados)
+migration/node_modules/
+migration/.env
+migration/*.json
+!migration/package.json
+!migration/package-lock.json

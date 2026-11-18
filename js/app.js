@@ -1,6 +1,6 @@
 /**
  * Controlador da interface do Banco de Horas.
- * Auth (Firebase) + lançamentos (Firestore).
+ * Auth + lançamentos (Supabase).
  */
 import {
   onAuth,
@@ -11,14 +11,16 @@ import {
   changePassword,
   getCurrentUser,
   resetPassword,
-  verifyResetCode,
   confirmResetPassword,
-} from "./firebase.js";
+  getAuthRedirectInfo,
+  describeRedirectError,
+  clearAuthUrl,
+} from "./supabase.js";
 import { TimeUtils } from "./time.js";
 import { Storage } from "./storage.js";
 import { exportCSV, exportPDF } from "./export.js";
 import { initTheme, applyTheme } from "./theme.js";
-import { compressImageToDataUrl, isSafeImageDataUrl } from "./images.js";
+import { compressImage } from "./images.js";
 
 const els = {
   boot: document.getElementById("boot-screen"),
@@ -100,17 +102,25 @@ const els = {
 let toastTimer = null;
 let authMode = "login"; // login | signup | reset | confirm-reset
 let busy = false;
-/** Código do e-mail de recuperação (oobCode), quando o usuário abre o link. */
-let pendingResetCode = "";
-/** E-mail associado ao oobCode (após verify). */
+/** App aberto pelo link de recuperação de senha (sessão temporária de recovery). */
+let recoveryMode = false;
+/** E-mail da conta em recuperação. */
 let pendingResetEmail = "";
+/** UID da sessão já carregada (evita recarregar em TOKEN_REFRESHED etc.). */
+let activeUid = null;
+/** Mensagem a mostrar na próxima vez que a tela de login abrir. */
+let pendingAuthNotice = null;
 
-/** Data URL pendente para salvar no próximo submit. */
-let pendingImageData = null;
+/** Foto comprimida pendente para enviar no próximo submit. */
+let pendingImageBlob = null;
+/** Object URL da prévia da foto pendente (revogar ao trocar). */
+let pendingImagePreviewUrl = "";
 /** Usuário pediu para remover a imagem existente. */
 let pendingImageClear = false;
-/** Data URL da imagem já salva (em edição). */
-let existingImageData = "";
+/** Caminho no Storage da imagem já salva (em edição). */
+let existingImagePath = "";
+/** Incrementa a cada render do histórico (descarta URLs atrasadas). */
+let historyRenderId = 0;
 
 function showToast(message) {
   els.toast.textContent = message;
@@ -153,15 +163,6 @@ function showAuthSuccess(message) {
   els.authError.textContent = "";
   els.authSuccess.hidden = false;
   els.authSuccess.textContent = message;
-}
-
-function clearResetQueryParams() {
-  const url = new URL(window.location.href);
-  ["mode", "oobCode", "apiKey", "lang", "continueUrl"].forEach((key) => {
-    url.searchParams.delete(key);
-  });
-  const next = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState({}, "", next || url.pathname);
 }
 
 function setAuthMode(mode) {
@@ -243,33 +244,25 @@ function setBusyAuth(isBusy) {
   els.authSubmit.disabled = isBusy;
 }
 
-async function beginConfirmResetFromLink() {
-  const params = new URLSearchParams(window.location.search);
-  const mode = params.get("mode");
-  const oobCode = params.get("oobCode");
+function enterRecoveryMode(user) {
+  recoveryMode = true;
+  pendingResetEmail = user?.email || "";
+  if (els.authEmail) els.authEmail.value = pendingResetEmail;
+  clearAuthUrl();
+  setAuthMode("confirm-reset");
+  setView("auth");
+}
 
-  if (mode !== "resetPassword" || !oobCode) return false;
-
-  pendingResetCode = oobCode;
+/** Sai da sessão temporária de recuperação e volta ao login com um aviso. */
+async function leaveRecoveryMode(notice = null) {
+  recoveryMode = false;
   pendingResetEmail = "";
-
+  pendingAuthNotice = notice;
   try {
-    pendingResetEmail = await verifyResetCode(oobCode);
-    if (els.authEmail) els.authEmail.value = pendingResetEmail;
-    setAuthMode("confirm-reset");
-    setView("auth");
-    return true;
+    await signOut();
   } catch (error) {
-    pendingResetCode = "";
-    pendingResetEmail = "";
-    clearResetQueryParams();
-    setAuthMode("reset");
-    setView("auth");
-    showAuthError(
-      error.message ||
-        "Este link de recuperação expirou ou já foi usado. Solicite um novo."
-    );
-    return true;
+    console.warn("Falha ao encerrar sessão de recuperação:", error);
+    onUserSignedOut();
   }
 }
 
@@ -282,7 +275,7 @@ async function handleAuthSubmit(event) {
   const passwordConfirm = els.authPasswordConfirm?.value || "";
 
   if (authMode === "confirm-reset") {
-    if (!pendingResetCode) {
+    if (!recoveryMode) {
       showAuthError("Link de recuperação inválido. Solicite um novo.");
       setAuthMode("reset");
       return;
@@ -302,21 +295,15 @@ async function handleAuthSubmit(event) {
       setBusyAuth(true);
       showAuthError("");
       showAuthSuccess("");
-      await confirmResetPassword(pendingResetCode, password);
-      pendingResetCode = "";
-      pendingResetEmail = "";
-      clearResetQueryParams();
+      await confirmResetPassword(password);
       els.authPassword.value = "";
       if (els.authPasswordConfirm) els.authPasswordConfirm.value = "";
-      setAuthMode("login");
-      showAuthSuccess("Senha redefinida. Entre com a nova senha.");
+      await leaveRecoveryMode({
+        type: "success",
+        message: "Senha redefinida. Entre com a nova senha.",
+      });
     } catch (error) {
       showAuthError(error.message || "Não foi possível redefinir a senha.");
-      if (/expirou|inválido|já foi usado|já utilizado/i.test(error.message || "")) {
-        pendingResetCode = "";
-        pendingResetEmail = "";
-        clearResetQueryParams();
-      }
     } finally {
       setBusyAuth(false);
     }
@@ -350,7 +337,14 @@ async function handleAuthSubmit(event) {
     if (authMode === "login") {
       await signIn(email, password);
     } else {
-      await signUp(email, password);
+      const { needsConfirmation } = await signUp(email, password);
+      if (needsConfirmation) {
+        els.authPassword.value = "";
+        setAuthMode("login");
+        showAuthSuccess(
+          "Conta criada. Enviamos um link de confirmação para o seu e-mail — confirme e depois entre."
+        );
+      }
     }
   } catch (error) {
     showAuthError(error.message || "Falha na autenticação.");
@@ -391,10 +385,16 @@ function setImagePreviewFromUrl(url) {
   updateImageRemoveVisibility();
 }
 
+function setPendingImage(blob) {
+  if (pendingImagePreviewUrl) URL.revokeObjectURL(pendingImagePreviewUrl);
+  pendingImageBlob = blob || null;
+  pendingImagePreviewUrl = blob ? URL.createObjectURL(blob) : "";
+}
+
 function resetImageState() {
-  pendingImageData = null;
+  setPendingImage(null);
   pendingImageClear = false;
-  existingImageData = "";
+  existingImagePath = "";
   clearImageInputs();
   setImagePreviewFromUrl("");
 }
@@ -403,10 +403,10 @@ async function handleImageFileSelected(file) {
   if (!file) return;
   try {
     showFormError("");
-    const dataUrl = await compressImageToDataUrl(file);
-    pendingImageData = dataUrl;
+    const blob = await compressImage(file);
+    setPendingImage(blob);
     pendingImageClear = false;
-    setImagePreviewFromUrl(dataUrl);
+    setImagePreviewFromUrl(pendingImagePreviewUrl);
   } catch (error) {
     showFormError(error.message || "Não foi possível usar esta imagem.");
     clearImageInputs();
@@ -414,21 +414,37 @@ async function handleImageFileSelected(file) {
 }
 
 function handleImageRemove() {
-  pendingImageData = null;
+  setPendingImage(null);
   clearImageInputs();
-  if (existingImageData) {
+  if (existingImagePath) {
     pendingImageClear = true;
   }
   setImagePreviewFromUrl("");
 }
 
-function openImageLightbox(dataUrl) {
-  if (!isSafeImageDataUrl(dataUrl)) {
-    showToast("Não foi possível abrir a imagem.");
-    return;
+async function showExistingImagePreview(path) {
+  if (!path) return;
+  try {
+    const url = await Storage.getImageUrl(path);
+    // Ainda editando o mesmo lançamento, sem nova foto escolhida?
+    if (url && existingImagePath === path && !pendingImageBlob && !pendingImageClear) {
+      setImagePreviewFromUrl(url);
+    }
+  } catch (error) {
+    console.warn("Prévia da imagem indisponível:", error);
   }
-  els.lightboxImage.src = dataUrl;
-  openModal(els.modalImage);
+}
+
+async function openImageLightbox(path) {
+  try {
+    const url = await Storage.getImageUrl(path);
+    if (!url) throw new Error("URL vazia");
+    els.lightboxImage.src = url;
+    openModal(els.modalImage);
+  } catch (error) {
+    console.warn(error);
+    showToast("Não foi possível abrir a imagem.");
+  }
 }
 
 function resetForm() {
@@ -457,11 +473,12 @@ function enterEditMode(entry) {
   els.btnSubmit.textContent = "Salvar alterações";
   els.btnCancel.hidden = false;
 
-  pendingImageData = null;
+  setPendingImage(null);
   pendingImageClear = false;
-  existingImageData = entry.imageData || "";
+  existingImagePath = entry.imagePath || "";
   clearImageInputs();
-  setImagePreviewFromUrl(existingImageData || "");
+  setImagePreviewFromUrl("");
+  showExistingImagePreview(existingImagePath);
 
   els.date.focus();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -614,7 +631,25 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
+/** Preenche as miniaturas com URLs assinadas (em lote, 1 requisição). */
+async function loadHistoryThumbs(renderId) {
+  const imgs = [...els.historyBody.querySelectorAll("img.history-thumb[data-path]")];
+  if (!imgs.length) return;
+  try {
+    const urls = await Storage.getImageUrls(imgs.map((img) => img.dataset.path));
+    if (renderId !== historyRenderId) return;
+    imgs.forEach((img) => {
+      const url = urls.get(img.dataset.path);
+      if (url) img.src = url;
+    });
+  } catch (error) {
+    console.warn("Miniaturas indisponíveis:", error);
+  }
+}
+
 function renderHistory(entries) {
+  historyRenderId += 1;
+  const renderId = historyRenderId;
   els.historyBody.innerHTML = "";
   const hasRows = entries.length > 0;
   els.emptyState.hidden = hasRows;
@@ -627,7 +662,7 @@ function renderHistory(entries) {
     const typeLabel = entry.type === "credit" ? "Hora extra" : "Compensação";
     const typeClass = entry.type === "credit" ? "badge-credit" : "badge-debit";
     const signedMinutes = entry.type === "credit" ? entry.minutes : -entry.minutes;
-    const hasImage = isSafeImageDataUrl(entry.imageData);
+    const hasImage = Boolean(entry.imagePath);
 
     tr.innerHTML = `
       <td data-label="Data">${escapeHtml(TimeUtils.formatDateBR(entry.date))}</td>
@@ -651,11 +686,13 @@ function renderHistory(entries) {
 
     els.historyBody.appendChild(tr);
 
-    if (hasImage && isSafeImageDataUrl(entry.imageData)) {
+    if (hasImage) {
       const thumb = tr.querySelector(".history-thumb");
-      if (thumb) thumb.src = entry.imageData;
+      if (thumb) thumb.dataset.path = entry.imagePath;
     }
   });
+
+  loadHistoryThumbs(renderId);
 }
 
 function refreshUI() {
@@ -704,10 +741,10 @@ async function handleSubmit(event) {
     note: els.note.value.trim().slice(0, 120),
   };
 
-  if (pendingImageData) {
-    payload.imageData = pendingImageData;
+  if (pendingImageBlob) {
+    payload.imageBlob = pendingImageBlob;
   } else if (pendingImageClear) {
-    payload.imageData = "";
+    payload.clearImage = true;
   }
 
   try {
@@ -721,14 +758,7 @@ async function handleSubmit(event) {
     showToast(isEdit ? "Lançamento atualizado." : "Lançamento adicionado.");
   } catch (error) {
     console.error(error);
-    const code = error?.code || "";
-    if (code === "permission-denied") {
-      showFormError(
-        "Sem permissão no Firestore. Atualize as Rules no Firebase Console (veja o README — campo imageData)."
-      );
-    } else {
-      showFormError(error.message || "Não foi possível salvar.");
-    }
+    showFormError(error.message || "Não foi possível salvar.");
   } finally {
     busy = false;
     els.btnSubmit.disabled = false;
@@ -746,7 +776,7 @@ async function handleHistoryClick(event) {
 
   if (button.dataset.action === "view-image") {
     const entry = Storage.getEntry(id);
-    if (entry?.imageData) openImageLightbox(entry.imageData);
+    if (entry?.imagePath) openImageLightbox(entry.imagePath);
     return;
   }
 
@@ -970,15 +1000,7 @@ function handleThemeChoice(theme) {
 }
 
 function goalsPermissionMessage(error) {
-  const code = error?.code || "";
-  const raw = String(error?.message || "");
-  if (
-    code === "permission-denied" ||
-    /insufficient permissions|permission/i.test(raw)
-  ) {
-    return "Sem permissão no Firestore. Publique as Rules atualizadas (arquivo firestore.rules) no Firebase Console.";
-  }
-  return raw || "Não foi possível salvar a meta.";
+  return String(error?.message || "") || "Não foi possível salvar a meta.";
 }
 
 async function handleGoalsChoice(value) {
@@ -1075,10 +1097,11 @@ function bindEvents() {
   els.authForm.addEventListener("submit", handleAuthSubmit);
   els.authForgot.addEventListener("click", () => setAuthMode("reset"));
   els.authToggle.addEventListener("click", () => {
+    if (authMode === "confirm-reset" && recoveryMode) {
+      leaveRecoveryMode();
+      return;
+    }
     if (authMode === "reset" || authMode === "confirm-reset" || authMode === "signup") {
-      pendingResetCode = "";
-      pendingResetEmail = "";
-      clearResetQueryParams();
       setAuthMode("login");
       return;
     }
@@ -1174,7 +1197,7 @@ function bindEvents() {
 async function onUserSignedIn(user) {
   refreshAccountUI(user);
   els.footerText.textContent =
-    "Dados sincronizados na nuvem (Firebase). Exporte em CSV ou PDF quando precisar.";
+    "Dados sincronizados na nuvem (Supabase). Exporte em CSV ou PDF quando precisar.";
   Storage.setUser(user.uid);
   resetForm();
   setView("app");
@@ -1198,8 +1221,13 @@ function onUserSignedOut() {
   closeMenus();
   document.querySelector(".layout")?.classList.remove("has-goals");
   if (els.goalPanel) els.goalPanel.hidden = true;
-  setAuthMode("login");
+
+  const notice = pendingAuthNotice;
+  pendingAuthNotice = null;
+  setAuthMode(notice?.mode || "login");
   setView("auth");
+  if (notice?.type === "success") showAuthSuccess(notice.message);
+  if (notice?.type === "error") showAuthError(notice.message);
 }
 
 function registerServiceWorker() {
@@ -1220,44 +1248,54 @@ function init() {
     setView("boot");
     registerServiceWorker();
 
+    // Retorno de link de e-mail (recuperação de senha / confirmação / erro)
+    const redirect = getAuthRedirectInfo();
+    // Vale só para a primeira sessão recebida (o link é de uso único).
+    let recoveryLinkPending = redirect.type === "recovery" && !redirect.errorCode;
+    if (redirect.errorCode) {
+      pendingAuthNotice = {
+        type: "error",
+        mode: "reset",
+        message: describeRedirectError(redirect),
+      };
+      clearAuthUrl();
+    }
+
     let resolved = false;
     const timeoutId = setTimeout(() => {
       if (!resolved) {
         console.warn("Auth demorou para responder; exibindo tela de login.");
         setView("auth");
-        showAuthError("Conexão lenta com o Firebase. Tente entrar mesmo assim.");
+        showAuthError("Conexão lenta com o servidor. Tente entrar mesmo assim.");
       }
     }, 8000);
 
-    onAuth(async (user) => {
+    onAuth((user, event) => {
       resolved = true;
       clearTimeout(timeoutId);
 
-      const params = new URLSearchParams(window.location.search);
-      const hasResetLink =
-        params.get("mode") === "resetPassword" && Boolean(params.get("oobCode"));
-
-      if (hasResetLink) {
-        if (user) {
-          try {
-            await signOut();
-          } catch (_) {
-            /* ignore */
-          }
-          return;
-        }
-        const handled = await beginConfirmResetFromLink();
-        if (handled) return;
-      }
-
-      if (authMode === "confirm-reset" && pendingResetCode) {
-        setView("auth");
+      // Sessão aberta pelo link de recuperação: só permite definir a nova senha.
+      const isRecoverySession =
+        event === "PASSWORD_RECOVERY" || (recoveryLinkPending && user && !recoveryMode);
+      if (user) recoveryLinkPending = false;
+      if (isRecoverySession) {
+        enterRecoveryMode(user);
         return;
+      }
+      if (recoveryMode) {
+        if (user) return; // TOKEN_REFRESHED etc. durante a recuperação
+        recoveryMode = false;
       }
 
       if (user) {
+        if (activeUid === user.uid) {
+          refreshAccountUI(user); // USER_UPDATED / TOKEN_REFRESHED / re-login
+          return;
+        }
+        activeUid = user.uid;
         onUserSignedIn(user);
       } else {
+        activeUid = null;
         onUserSignedOut();
       }
     });

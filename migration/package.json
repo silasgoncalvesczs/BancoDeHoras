@@ -1,0 +1,17 @@
+{
+  "name": "banco-horas-migracao",
+  "private": true,
+  "type": "module",
+  "description": "Migração única Firebase (Auth + Firestore) → Supabase",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "teste": "node --env-file=.env migrate.mjs --dry-run",
+    "migrar": "node --env-file=.env migrate.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4",
+    "firebase-admin": "12.7.0"
+  }
+}

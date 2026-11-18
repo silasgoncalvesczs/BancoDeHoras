@@ -282,7 +282,7 @@
             <div class="image-preview-wrap" id="image-preview-wrap" hidden>
               <img id="image-preview" class="image-preview" alt="Pré-visualização da imagem anexada">
             </div>
-            <p class="field-hint">A imagem é opcional e fica salva junto com o lançamento.</p>
+            <p class="field-hint">A imagem é opcional e fica salva na sua conta, visível só para você.</p>
           </div>
 
           <p class="form-error" id="form-error" role="alert" hidden></p>
@@ -332,7 +332,7 @@
     </main>
 
     <footer class="site-footer">
-      <p id="footer-text">Dados sincronizados na nuvem (Firebase).</p>
+      <p id="footer-text">Dados sincronizados na nuvem (Supabase).</p>
       <p class="dev-credit">
         Desenvolvido por
         <a href="https://silasgoncalvesczs.github.io/Portfolio/" target="_blank" rel="noopener noreferrer">Silas Gonçalves</a>
@@ -414,7 +414,7 @@
       if (hint) {
         hint.hidden = false;
         hint.textContent =
-          "Falha ao carregar a configuração do Firebase (firebase-config.js). No GitHub: Settings → Pages → Source = GitHub Actions, depois rode o workflow Deploy GitHub Pages.";
+          "Falha ao carregar a configuração do Supabase (supabase-config.js). No GitHub: Settings → Pages → Source = GitHub Actions, depois rode o workflow Deploy GitHub Pages.";
       }
     });
   </script>

@@ -1,15 +1,15 @@
 /**
  * Service Worker — cache do casco estático (UI offline).
- * Auth/Firestore continuam exigindo rede.
+ * Auth/banco (Supabase) continuam exigindo rede.
  */
-const CACHE_VERSION = "banco-horas-v7";
+const CACHE_VERSION = "banco-horas-v8";
 const PRECACHE = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./css/styles.css",
   "./js/app.js",
-  "./js/firebase.js",
+  "./js/supabase.js",
   "./js/storage.js",
   "./js/time.js",
   "./js/export.js",
@@ -100,7 +100,7 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
-  // CDN Firebase / fontes: só rede
+  // CDN (supabase-js), API/Storage do Supabase, fontes: só rede
   if (!isSameOrigin(url)) return;
 
   if (isNavigationRequest(request)) {
@@ -108,8 +108,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // firebase-config gerado no deploy: cache após 1ª carga
-  if (url.pathname.endsWith("/firebase-config.js") || url.pathname.endsWith("firebase-config.js")) {
+  // supabase-config gerado no deploy: cache após 1ª carga
+  if (url.pathname.endsWith("supabase-config.js")) {
     event.respondWith(networkFirst(request));
     return;
   }
