@@ -71,7 +71,8 @@ Pré-requisitos: Node.js 20.6+, [Firebase CLI](https://firebase.google.com/docs/
    ```
 6. **Valide com a sua conta**: rode o app apontando para o Supabase, entre com a **senha de sempre** e confira lançamentos, fotos e meta.
    - Se a senha não funcionar, use “Esqueci a senha” e, para os demais, rode com `--sem-senha` (todos redefinem no 1º acesso).
-7. Migre todos: `npm run migrar`. Confira `migration/migration-report.json` (lista quem precisa redefinir a senha)
+7. Migre todos **no dia de publicar**: exporte o `users.json` de novo (passo 1) e rode `node --env-file=.env migrate.mjs --recriar`. Confira `migration/migration-report.json` (lista quem precisa redefinir a senha)
+   - `--recriar` apaga e recria no Supabase as contas que já existem, para pegar senhas e dados alterados no Firebase (o Supabase **ignora** `password_hash` ao atualizar uma conta existente). **Não use depois que o site já estiver no Supabase**, pois apagaria dados criados lá
 8. Faça o deploy (seção abaixo). Mantenha o projeto Firebase por algumas semanas como backup antes de apagá-lo
 9. Apague `users.json`, `service-account.json` e `.env` da pasta `migration/` (contêm dados sensíveis; já estão no `.gitignore`)
 

@@ -12,9 +12,14 @@
  *   --dry-run      só lê e mostra o que faria
  *   --only=EMAIL   migra apenas essa conta (pode repetir)
  *   --sem-senha    não importa o hash de senha (usuários usam "Esqueci a senha")
+ *   --recriar      APAGA no Supabase as contas que já existem (e os dados/fotos delas)
+ *                  e recria a partir do Firebase. Use antes de publicar, para pegar
+ *                  senhas trocadas no Firebase (o Supabase ignora password_hash em
+ *                  contas existentes). Não use depois que o app já estiver no Supabase.
  *
  * É seguro rodar de novo: usuários existentes são reaproveitados (pelo e-mail),
  * lançamentos usam IDs determinísticos e são gravados com upsert.
+ * Obs.: sem --recriar, a senha de contas já existentes NÃO é atualizada.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -29,6 +34,7 @@ import { createClient } from "@supabase/supabase-js";
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const NO_PASSWORD = args.includes("--sem-senha");
+const RECREATE = args.includes("--recriar");
 const ONLY = args
   .filter((a) => a.startsWith("--only="))
   .map((a) => a.slice(7).trim().toLowerCase())
@@ -135,6 +141,22 @@ async function createSupabaseUser(fbUser) {
   const { data, error } = await supabase.auth.admin.createUser(base);
   if (error) throw error;
   return { id: data.user.id, password: "precisa redefinir" };
+}
+
+/** Remove fotos e a conta no Supabase (lançamentos/meta saem em cascata). */
+async function deleteSupabaseUser(sbUid) {
+  for (;;) {
+    const { data, error } = await supabase.storage.from(BUCKET).list(sbUid, { limit: 1000 });
+    if (error) throw new Error(`listar fotos: ${error.message}`);
+    if (!data.length) break;
+    const { error: rmError } = await supabase.storage
+      .from(BUCKET)
+      .remove(data.map((f) => `${sbUid}/${f.name}`));
+    if (rmError) throw new Error(`apagar fotos: ${rmError.message}`);
+    if (data.length < 1000) break;
+  }
+  const { error } = await supabase.auth.admin.deleteUser(sbUid);
+  if (error) throw new Error(`apagar conta: ${error.message}`);
 }
 
 async function readImage(fbUid, docId, data) {
@@ -274,7 +296,16 @@ for (const fbUser of fbUsers) {
   console.log(`\n→ ${fbUser.email}`);
 
   try {
-    const known = existing.get(fbUser.email.toLowerCase());
+    let known = existing.get(fbUser.email.toLowerCase());
+    if (known && RECREATE) {
+      if (DRY_RUN) {
+        console.log("  (seria apagada e recriada)");
+      } else {
+        await deleteSupabaseUser(known);
+        console.log("  conta existente apagada; recriando…");
+      }
+      known = null;
+    }
     if (known) {
       report.supabaseUid = known;
       report.password = "conta já existia (não alterada)";
