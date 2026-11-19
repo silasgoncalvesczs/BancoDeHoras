@@ -12,7 +12,13 @@ import { supabaseConfig } from "./supabase-config.js";
 // client processar e limpar a URL.
 const initialRedirect = parseAuthRedirect(window.location);
 
-const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+// Aceita a URL base do projeto; remove sufixos colados por engano (ex.: /rest/v1/).
+const projectUrl = String(supabaseConfig.url || "")
+  .trim()
+  .replace(/\/(rest|auth|storage|realtime)\/v1\/?.*$/i, "")
+  .replace(/\/+$/, "");
+
+const supabase = createClient(projectUrl, String(supabaseConfig.anonKey || "").trim(), {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
