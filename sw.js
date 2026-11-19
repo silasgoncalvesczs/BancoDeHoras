@@ -2,7 +2,7 @@
  * Service Worker — cache do casco estático (UI offline).
  * Auth/banco (Supabase) continuam exigindo rede.
  */
-const CACHE_VERSION = "banco-horas-v8";
+const CACHE_VERSION = "banco-horas-v9";
 const PRECACHE = [
   "./",
   "./index.html",

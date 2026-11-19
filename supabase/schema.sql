@@ -51,6 +51,9 @@ create table if not exists public.goals (
   updated_at    timestamptz not null default now()
 );
 
+-- Data a partir da qual a meta conta os créditos (null = todo o histórico)
+alter table public.goals add column if not exists start_date date;
+
 alter table public.goals enable row level security;
 
 drop policy if exists "goals: dono lê"     on public.goals;

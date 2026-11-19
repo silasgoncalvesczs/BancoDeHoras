@@ -90,6 +90,9 @@ const els = {
   goalStatus: document.getElementById("goal-status"),
   goalsMetaField: document.getElementById("goals-meta-field"),
   goalsDuration: document.getElementById("goals-duration"),
+  goalsStart: document.getElementById("goals-start"),
+  goalsStartClear: document.getElementById("goals-start-clear"),
+  goalSub: document.getElementById("goal-sub"),
   historyBody: document.getElementById("history-body"),
   emptyState: document.getElementById("empty-state"),
   filterMonth: document.getElementById("filter-month"),
@@ -554,6 +557,13 @@ function syncGoalsControls(goals) {
     els.goalsDuration.value =
       goals.goalMinutes > 0 ? TimeUtils.formatDuration(goals.goalMinutes) : "";
   }
+
+  if (els.goalsStart && document.activeElement !== els.goalsStart) {
+    els.goalsStart.value = goals.startDate || "";
+  }
+  if (els.goalsStartClear) {
+    els.goalsStartClear.hidden = !goals.startDate;
+  }
 }
 
 function renderGoals(allEntries) {
@@ -568,8 +578,16 @@ function renderGoals(allEntries) {
   if (!enabled) return;
 
   const meta = goals.goalMinutes;
-  const totals = Storage.computeTotals(allEntries);
+  const start = goals.startDate;
+  const goalEntries = start ? allEntries.filter((entry) => entry.date >= start) : allEntries;
+  const totals = Storage.computeTotals(goalEntries);
   const realizado = totals.credit;
+
+  if (els.goalSub) {
+    els.goalSub.textContent = start
+      ? `Créditos desde ${TimeUtils.formatDateBR(start)}`
+      : "Realizado vs. a fazer para bater a meta";
+  }
 
   if (meta <= 0) {
     els.goalBody.hidden = true;
@@ -905,15 +923,23 @@ function openPasswordModal() {
 function handleExportOption(format) {
   closeMenus();
   const user = getCurrentUser();
+  // Exporta o que está visível no histórico (respeita o filtro de mês)
+  const entries = getFilteredEntries();
+  const key = els.filterMonth.value || "all";
+  const period = {
+    key,
+    label: key === "all" ? "Todos" : TimeUtils.formatMonthLabel(key),
+  };
   try {
     if (format === "csv") {
-      exportCSV();
-      showToast("CSV exportado.");
+      exportCSV(entries, { period });
+      showToast(key === "all" ? "CSV exportado." : `CSV exportado (${period.label}).`);
       return;
     }
     if (format === "pdf") {
-      exportPDF(Storage.listEntries(), {
+      exportPDF(entries, {
         userEmail: user?.email || user?.displayName || "",
+        period,
       });
       showToast("Use Salvar como PDF na janela de impressão.");
     }
@@ -1011,6 +1037,26 @@ async function handleGoalsChoice(value) {
     showToast(enabled ? "Meta de Horas ativada." : "Meta de Horas desativada.");
   } catch (error) {
     console.error(error);
+    showToast(goalsPermissionMessage(error));
+  }
+}
+
+async function persistGoalsStart(value) {
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? value : null;
+  const current = Storage.getGoals();
+  if (current.startDate === startDate) return;
+
+  try {
+    await Storage.saveGoals({ startDate });
+    renderGoals(Storage.listEntries());
+    showToast(
+      startDate
+        ? `Meta contando a partir de ${TimeUtils.formatDateBR(startDate)}.`
+        : "Meta contando todo o histórico."
+    );
+  } catch (error) {
+    console.error(error);
+    if (els.goalsStart) els.goalsStart.value = current.startDate || "";
     showToast(goalsPermissionMessage(error));
   }
 }
@@ -1127,6 +1173,14 @@ function bindEvents() {
 
   bindDurationField(els.duration);
   bindDurationField(els.goalsDuration, { onCommit: () => persistGoalsDuration() });
+
+  els.goalsStart?.addEventListener("change", () => {
+    persistGoalsStart(els.goalsStart.value);
+  });
+  els.goalsStartClear?.addEventListener("click", () => {
+    els.goalsStart.value = "";
+    persistGoalsStart("");
+  });
 
   els.filterMonth.addEventListener("change", () => {
     renderHistory(getFilteredEntries());

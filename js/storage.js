@@ -12,7 +12,7 @@ import { isValidISODate } from "./time.js";
 
 const LOCAL_KEY = "banco-horas:v1";
 const MAX_MINUTES = 999 * 60 + 59;
-const DEFAULT_GOALS = { enabled: false, goalMinutes: 0 };
+const DEFAULT_GOALS = { enabled: false, goalMinutes: 0, startDate: null };
 const BUCKET = "entry-images";
 const SIGNED_URL_TTL = 60 * 60; // 1h
 const PAGE_SIZE = 1000;
@@ -119,7 +119,10 @@ function normalizeGoals(data) {
   let goalMinutes = Number(data?.goalMinutes);
   if (!Number.isFinite(goalMinutes) || goalMinutes < 0) goalMinutes = 0;
   goalMinutes = Math.min(Math.trunc(goalMinutes), MAX_MINUTES);
-  return { enabled, goalMinutes };
+  // Data inicial da meta (YYYY-MM-DD) ou null = conta todo o histórico
+  const raw = typeof data?.startDate === "string" ? data.startDate.slice(0, 10) : "";
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  return { enabled, goalMinutes, startDate };
 }
 
 export function createId() {
@@ -164,12 +167,16 @@ async function fetchGoals() {
   const gen = generation;
   const { data, error } = await supabase
     .from("goals")
-    .select("enabled,goal_minutes")
+    .select("enabled,goal_minutes,start_date")
     .maybeSingle();
   if (error) throw friendlyError(error, "Não foi possível carregar a meta.");
   if (gen !== generation) return;
   goalsCache = data
-    ? normalizeGoals({ enabled: data.enabled, goalMinutes: data.goal_minutes })
+    ? normalizeGoals({
+        enabled: data.enabled,
+        goalMinutes: data.goal_minutes,
+        startDate: data.start_date,
+      })
     : { ...DEFAULT_GOALS };
   notifyGoals();
 }
@@ -390,7 +397,12 @@ export async function saveGoals(partial) {
   const next = normalizeGoals({ ...goalsCache, ...partial });
 
   const { error } = await supabase.from("goals").upsert(
-    { user_id: currentUid, enabled: next.enabled, goal_minutes: next.goalMinutes },
+    {
+      user_id: currentUid,
+      enabled: next.enabled,
+      goal_minutes: next.goalMinutes,
+      start_date: next.startDate,
+    },
     { onConflict: "user_id" }
   );
   if (error) throw friendlyError(error, "Não foi possível salvar a meta.");

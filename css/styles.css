@@ -431,6 +431,33 @@ html[data-theme="dark"] .theme-option[aria-pressed="true"] {
   outline-offset: 1px;
 }
 
+.goals-meta-field label[for="goals-start"] {
+  margin-top: 0.6rem;
+}
+
+.goals-start-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
+.goals-start-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.goals-start-clear {
+  flex: none;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.goals-start-hint {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 html[data-theme="dark"] .btn-primary {
   color: #0d1520;
 }

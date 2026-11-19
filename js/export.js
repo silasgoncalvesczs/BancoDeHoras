@@ -18,6 +18,15 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Texto livre (descrição) que começa com = + - @ Tab ou CR vira fórmula no
+ * Excel/LibreOffice. Prefixar com apóstrofo força o conteúdo como texto.
+ */
+function neutralizeFormula(value) {
+  const text = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 function escapeCsv(value) {
   const text = String(value ?? "");
   if (/[;"\n\r]/.test(text)) {
@@ -39,8 +48,16 @@ function buildRows(entries) {
   });
 }
 
-/** Gera e baixa CSV (separador ; para Excel em pt-BR). */
-export function exportCSV(entries = Storage.listEntries()) {
+/** Sufixo do nome do arquivo: "2026-11" para um mês, "" para todos. */
+function fileSuffix(period) {
+  return period?.key && period.key !== "all" ? `-${period.key}` : "";
+}
+
+/**
+ * Gera e baixa CSV (separador ; para Excel em pt-BR).
+ * period = { key: "2026-11" | "all", label: "Novembro de 2026" | "Todos" }
+ */
+export function exportCSV(entries = Storage.listEntries(), { period } = {}) {
   if (!entries.length) {
     throw new Error("Não há lançamentos para exportar.");
   }
@@ -51,10 +68,11 @@ export function exportCSV(entries = Storage.listEntries()) {
   const lines = [
     ["Data", "Tipo", "Duração", "Descrição"].map(escapeCsv).join(";"),
     ...rows.map((row) =>
-      [row.date, row.type, row.duration, row.note].map(escapeCsv).join(";")
+      [row.date, row.type, row.duration, neutralizeFormula(row.note)].map(escapeCsv).join(";")
     ),
     "",
     ["Resumo", "", "", ""].join(";"),
+    ["Período", period?.label || "Todos", "", ""].map(escapeCsv).join(";"),
     ["Créditos", TimeUtils.formatDuration(totals.credit), "", ""].map(escapeCsv).join(";"),
     ["Débitos", TimeUtils.formatDuration(totals.debit), "", ""].map(escapeCsv).join(";"),
     ["Saldo", TimeUtils.formatDuration(totals.balance, { signed: totals.balance !== 0 }), "", ""]
@@ -65,11 +83,11 @@ export function exportCSV(entries = Storage.listEntries()) {
   // BOM para Excel reconhecer UTF-8
   const content = `\uFEFF${lines.join("\r\n")}`;
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  downloadBlob(blob, `banco-horas-${stamp()}.csv`);
+  downloadBlob(blob, `banco-horas${fileSuffix(period)}-${stamp()}.csv`);
 }
 
 /** Abre relatório formatado para salvar como PDF via impressão. */
-export function exportPDF(entries = Storage.listEntries(), { userEmail = "" } = {}) {
+export function exportPDF(entries = Storage.listEntries(), { userEmail = "", period } = {}) {
   if (!entries.length) {
     throw new Error("Não há lançamentos para exportar.");
   }
@@ -94,7 +112,7 @@ export function exportPDF(entries = Storage.listEntries(), { userEmail = "" } = 
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Banco de Horas — Relatório</title>
+  <title>Banco de Horas — Relatório${period?.key && period.key !== "all" ? ` — ${escapeHtml(period.label)}` : ""}</title>
   <style>
     :root { color-scheme: light; }
     * { box-sizing: border-box; }
@@ -133,7 +151,8 @@ export function exportPDF(entries = Storage.listEntries(), { userEmail = "" } = 
 <body>
   <h1>Banco de Horas</h1>
   <p class="meta">
-    Relatório gerado em ${generatedAt}
+    Período: ${escapeHtml(period?.label || "Todos")}
+    <br>Relatório gerado em ${generatedAt}
     ${userEmail ? `<br>Conta: ${escapeHtml(userEmail)}` : ""}
   </p>
 

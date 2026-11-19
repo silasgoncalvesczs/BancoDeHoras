@@ -144,6 +144,13 @@
                 <label for="goals-duration">Meta (hh:mm)</label>
                 <input type="text" id="goals-duration" inputmode="numeric" placeholder="Ex.: 4400 → 44:00"
                   maxlength="6" autocomplete="off" spellcheck="false">
+                <label for="goals-start">Contar a partir de</label>
+                <div class="goals-start-row">
+                  <input type="date" id="goals-start" autocomplete="off">
+                  <button type="button" class="btn btn-ghost goals-start-clear" id="goals-start-clear"
+                    title="Contar todo o histórico">Limpar</button>
+                </div>
+                <p class="goals-start-hint">Vazio = soma todo o histórico de créditos.</p>
               </div>
             </div>
 
@@ -201,7 +208,7 @@
       <section class="goal-panel" id="goal-panel" aria-labelledby="goal-heading" hidden>
         <div class="panel-head goal-head">
           <h2 id="goal-heading" class="goal-title">Meta de Horas</h2>
-          <p class="panel-sub">Realizado vs. a fazer para bater a meta</p>
+          <p class="panel-sub" id="goal-sub">Realizado vs. a fazer para bater a meta</p>
         </div>
         <div class="goal-body" id="goal-body">
           <div class="goal-pie" id="goal-pie" aria-hidden="true"></div>
